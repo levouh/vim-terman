@@ -20,7 +20,7 @@ Plug 'u0931220/vim-terman'
 
 ### Setup
 
-`vim-terman` provides the following bindings:
+`vim-terman` provides the following commands:
 
 | **Command** | **Description** |
 |---|---|
@@ -31,7 +31,7 @@ Plug 'u0931220/vim-terman'
 | `:TermanMark` | Mark a terminal buffer in the set, see `TermanPaste`. |
 | `:TermanPaste` | Paste the marked buffer in the currently selected window, effectively swapping the two. |
 
-Some example mappings might include:
+No mappings are provided by default, but some example mappings might include:
 
 ```
 nnoremap <silent> <Leader>t :TermanToggle<CR>
