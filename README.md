@@ -11,6 +11,7 @@ If you end up using it and find any bugs, please report them or make a PR to fix
 ### Support
 
 _Vim_: 8.2.227
+_OS_: Linux
 
 ### Installation
 
