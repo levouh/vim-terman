@@ -14,16 +14,25 @@
         finish
     endif
 
+    let g:terman_per_tab = get(g:, 'terman_per_tab', 1)
+
 " --- Variables
 
-    " A list of terminal buffer entries managed by terman
-    let g:_terman_terminal_set = []
+    " A list of terminal buffer entries managed by terman,
+    " optionally split by tab
+    let g:_terman_terminal_set = {}
+
+    " The generic key to be used if not using terman_per_tab
+    let g:_terman_key = 'base'
 
     " The buffer that is currently fullscreened within the set
-    let g:_terman_fs_buffer = -1
+    let g:_terman_fullscreen_buf = {}
 
     " Whether or not the terminal set is visible
-    let g:_terman_visible_state = -1
+    let g:_terman_visible_state = {}
+
+    " Track what buffer was focused when toggling
+    let g:_terman_focused_buf = {}
 
 " --- Commands
 
@@ -40,12 +49,3 @@
     " Swap the position of two terminal buffer windows
     command TermanMark call terman#mark()
     command TermanPaste call terman#paste()
-
-" --- Autocommands
-
-    augroup terman
-        au!
-
-        " Handle removing buffers from the terminal set when they are closed
-        au BufDelete * call terman#close()
-    augroup END

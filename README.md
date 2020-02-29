@@ -1,22 +1,21 @@
 ## vim-terman
 
-_A simple terminal buffer manager and multiplexer._
+_A simple togglable terminal buffer manager/splitter._
 
 ### Warning
 
-This plugin was thrown together quickly and does a lot of unnecessary list iterations, etc.
-It also doesn't do some useful things like support tabs, but I have plans to add features as development continues.
-If you end up using it and find any bugs, please report them or make a PR to fix them.
+This plugin was thrown together pretty quickly, so if you find any problems with it please report them.
 
 ### Support
 
-_Vim_: 8.2.227
-_OS_: Linux
+_I have only tested this plugin with the following:_  
+- _Vim_: 8.2.227  
+- _OS_: Linux
 
 ### Installation
 
 ```
-Plug 'u0931220/vim-terman'
+Plug 'levouh/vim-terman'
 ```
 
 ### Setup
@@ -47,9 +46,13 @@ g:terman_shell
 
 Determines the type of shell to use within the terminal buffer, defaults to `bash`.
 
+```
+g:terman_per_tab
+```
+
+Determine if terminal sets should be exist on a per-tab basis, or a single instance should be shared between all tabs.
+
 ### TODO
 
-- Clean up implementation to be more standardized/performant.
-- Track the focus of the buffer when toggling the terminal set.
 - Deal with closing all ther terminal buffers when no non-terminal buffers are present.
-- Add tab support.
+- Finish testing for mark/paste.
