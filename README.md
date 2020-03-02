@@ -40,17 +40,17 @@ tnoremap <silent> <C-w>t <C-\><C-n>:TermanToggle<CR>
 
 ### Configuration
 
-```
-g:terman_shell
-```
-
-Determines the type of shell to use within the terminal buffer, defaults to `bash`.
+By default, `vim-terman` assumes you like to use `bash` as your shell, but this can be changed:
 
 ```
-g:terman_per_tab
+let g:terman_shell = 'ksh'
 ```
 
-Determine if terminal sets should be exist on a per-tab basis, or a single instance should be shared between all tabs.
+Also by default, the terminal set will be different for each tab. If you'd like there to just be a single terminal set for all tabs:
+
+```
+let g:terman_per_tab = 0
+```
 
 ### TODO
 
