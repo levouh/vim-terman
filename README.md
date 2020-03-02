@@ -2,9 +2,9 @@
 
 _A simple togglable terminal buffer manager/splitter._
 
-### Warning
+### Note
 
-This plugin was thrown together pretty quickly, so if you find any problems with it please report them.
+I have no idea what I am doing, so if you find a problem with this plugin please let me know.
 
 ### Support
 
