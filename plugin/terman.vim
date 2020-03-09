@@ -8,7 +8,7 @@
 
 " --- Options
 
-    let g:terman_shell = get(g:, 'terman_shell', 'bash')
+    let g:terman_shell = get(g:, 'terman_shell', &shell)
 
     if !executable(g:terman_shell)
         finish

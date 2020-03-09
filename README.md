@@ -40,7 +40,7 @@ tnoremap <silent> <C-w>t <C-\><C-n>:TermanToggle<CR>
 
 ### Configuration
 
-By default, `vim-terman` assumes you like to use `bash` as your shell, but this can be changed:
+By default, `vim-terman` defaults to using `&shell`, but you can change this with:
 
 ```
 let g:terman_shell = 'ksh'
