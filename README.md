@@ -35,7 +35,12 @@ No mappings are provided by default, but some example mappings might include:
 
 ```
 nnoremap <silent> <Leader>t :TermanToggle<CR>
-tnoremap <silent> <C-w>t <C-\><C-n>:TermanToggle<CR>
+tnoremap <silent> <C-w>t <C-w>:TermanToggle<CR>
+tnoremap <silent> <C-w>v <C-w>:TermanVert<CR>
+tnoremap <silent> <C-w>s <C-w>:TermanSplit<CR>
+tnoremap <silent> <C-w>f <C-w>:TermanFullscreen<CR>
+tnoremap <silent> <C-w>y <C-w>:TermanMark<CR>
+tnoremap <silent> <C-w>p <C-w>:TermanPaste<CR>
 ```
 
 ### Configuration
