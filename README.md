@@ -59,5 +59,4 @@ let g:terman_per_tab = 0
 
 ### TODO
 
-- Deal with closing all ther terminal buffers when no non-terminal buffers are present.
-- Finish testing for mark/paste.
+- Support mark/paste between tabs based on `g:terman_per_tab`.
