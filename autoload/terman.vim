@@ -372,8 +372,25 @@
 
     " Hide all currently visible buffers of the terminal set
     function! s:hide_all()
-        let l:key = s:get_key()
         let g:_terman_skip_au = 1
+
+        try
+            call s:hide_all_helper()
+        catch /^Vim\%((\a\+)\)\=:E444:/
+            " Catch errors when there are no 'normal' buffers left
+            exe 'top new'
+
+            call s:hide_all_helper()
+        endtry
+
+        wincmd =
+
+        unlet g:_terman_skip_au
+    endfunction
+
+    " Functionality for hiding buffers
+    function! s:hide_all_helper()
+        let l:key = s:get_key()
 
         for l:entry in s:get_entries(l:key)
             let l:winids = win_findbuf(l:entry.bufnr)
@@ -385,10 +402,6 @@
                 hide
             endfor
         endfor
-
-        wincmd =
-
-        unlet g:_terman_skip_au
     endfunction
 
     " Restore the layout of the terminal set and make them all visible
@@ -433,16 +446,18 @@
             let l:i += 1
         endwhile
 
+        wincmd =
+
         unlet g:_terman_skip_au
     endfunction
 
     " Get all of the entries for a particular tab
-    function s:get_entries(key)
+    function! s:get_entries(key)
         return get(g:_terman_terminal_set, a:key, [])
     endfunction
 
     " Add an entry to th eterminal buffer set list
-    function s:add_entry(key, index, value)
+    function! s:add_entry(key, index, value)
         let l:entries = get(g:_terman_terminal_set, a:key, [])
 
         if a:index == -1
@@ -455,7 +470,7 @@
     endfunction
 
     " Set the value of an entry in the terminal buffer set list
-    function s:set_entry(key, index, value, attribute)
+    function! s:set_entry(key, index, value, attribute)
         let l:entries = get(g:_terman_terminal_set, a:key, [])
 
         if empty(a:attribute)
@@ -468,7 +483,7 @@
     endfunction
 
     " Remove an entry from a terminal set buffer list
-    function s:remove_list_entry(key, index)
+    function! s:remove_list_entry(key, index)
         if has_key(g:_terman_terminal_set, a:key) && !empty(g:_terman_terminal_set[a:key])
             unlet g:_terman_terminal_set[a:key][a:index]
         endif
@@ -479,7 +494,7 @@
     endfunction
 
     " Determine if the terminal set is visible
-    function s:is_visible(key)
+    function! s:is_visible(key)
         if exists('g:_terman_visible_state') && has_key(g:_terman_visible_state, a:key) && g:_terman_visible_state[a:key] == 1
             return 1
         endif
@@ -488,7 +503,7 @@
     endfunction
 
     " Toggle the visibility state of the terminal buffer set
-    function s:toggle_visible(key)
+    function! s:toggle_visible(key)
         if s:is_visible(a:key)
             let g:_terman_visible_state[a:key] = 0
         else
@@ -497,7 +512,7 @@
     endfunction
 
     " Determine if any buffer is currently fullscreened
-    function s:has_fullscreen_buf(key)
+    function! s:has_fullscreen_buf(key)
         if !has_key(g:_terman_fullscreen_buf, a:key)
             let g:_terman_fullscreen_buf[a:key] = -1
         endif
@@ -510,7 +525,7 @@
     endfunction
 
     " Get the buffer which is set as fullscreen
-    function s:get_fullscreen_buf(key)
+    function! s:get_fullscreen_buf(key)
         if exists('g:_terman_fullscreen_buf') && has_key(g:_terman_fullscreen_buf, a:key) && g:_terman_fullscreen_buf[a:key] != -1
             return g:_terman_fullscreen_buf[a:key]
         endif
@@ -519,12 +534,12 @@
     endfunction
 
     " Set a single buffer within the terminal set as fullscreen
-    function s:set_fullscreen_buf(key, bufnr)
+    function! s:set_fullscreen_buf(key, bufnr)
         let g:_terman_fullscreen_buf[a:key] = a:bufnr
     endfunction
 
     " Bring focus to the window containing the passed buffer
-    function s:focus_win(key, bufnr)
+    function! s:focus_win(key, bufnr)
         if s:is_visible(a:key) && has_key(g:_terman_focused_buf, a:key)
             try
                 exe bufwinnr(g:_terman_focused_buf[a:key]) . 'wincmd w'
@@ -533,7 +548,7 @@
     endfunction
 
     " Track the focus of buffers within the terminal set for use when toggling
-    function s:set_focused(key, bufnr)
+    function! s:set_focused(key, bufnr)
         " Skip changing focus when we are opening all terminal windows as the result of a toggle
         if !exists('g:_terman_skip_au') && exists('b:_terman_buffer')
             let g:_terman_focused_buf[a:key] = a:bufnr
