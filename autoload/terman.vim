@@ -208,22 +208,7 @@
 
         if !s:has_fullscreen_buf(l:key)
             " No window is currently full-screened
-            let l:cur_win = win_getid()
-            let l:entries = s:get_entries(l:key)
-
-            for l:entry in l:entries
-                let l:winids = win_findbuf(l:entry.bufnr)
-
-                " Hide all but the focused window
-                for l:winid in l:winids
-                    if l:winid == l:cur_win
-                        continue
-                    endif
-
-                    call win_gotoid(l:winid)
-                    hide
-                endfor
-            endfor
+            call s:hide_all(win_getid())
 
             call s:set_fullscreen_buf(l:key, bufnr('%'))
         else
@@ -234,14 +219,7 @@
                 return
             endif
 
-            let l:winids = win_findbuf(l:fs_buf)
-
-            " Hide all windows
-            for l:winid in l:winids
-                call win_gotoid(l:winid)
-
-                hide
-            endfor
+            call s:hide_all()
 
             " A value of '-1' denotes that nothing is full-screened
             call s:set_fullscreen_buf(l:key, -1)
@@ -371,16 +349,23 @@
     endfunction
 
     " Hide all currently visible buffers of the terminal set
-    function! s:hide_all()
+    function! s:hide_all(...)
         let g:_terman_skip_au = 1
 
+        if a:0
+            let l:winids_to_skip = a:000
+        else
+            let l:winids_to_skip = []
+        endif
+
         try
-            call s:hide_all_helper()
+            call s:hide_all_helper(l:winids_to_skip)
         catch /^Vim\%((\a\+)\)\=:E444:/
             " Catch errors when there are no 'normal' buffers left
-            exe 'top new'
+            " Fix this by creating an empty buffer
+            top new
 
-            call s:hide_all_helper()
+            call s:hide_all_helper(l:winids_to_skip)
         endtry
 
         wincmd =
@@ -389,13 +374,18 @@
     endfunction
 
     " Functionality for hiding buffers
-    function! s:hide_all_helper()
+    function! s:hide_all_helper(winids_to_skip)
         let l:key = s:get_key()
 
         for l:entry in s:get_entries(l:key)
             let l:winids = win_findbuf(l:entry.bufnr)
 
             for l:winid in l:winids
+                " Used when fullscreening a buffer, hide all except the 'fullscreened' one
+                if len(a:winids_to_skip) && index(a:winids_to_skip, l:winid) >= 0
+                    continue
+                endif
+
                 " Now hide it
                 call win_gotoid(l:winid)
 
