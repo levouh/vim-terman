@@ -53,6 +53,7 @@
             endif
         endif
 
+        wincmd =
         call s:focus_win(l:key, l:winid)
     endfunction
 
@@ -368,8 +369,6 @@
             call s:hide_all_helper(l:winids_to_skip)
         endtry
 
-        wincmd =
-
         unlet g:_terman_skip_au
     endfunction
 
@@ -435,8 +434,6 @@
 
             let l:i += 1
         endwhile
-
-        wincmd =
 
         unlet g:_terman_skip_au
     endfunction
