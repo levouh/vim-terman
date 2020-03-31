@@ -359,15 +359,11 @@
             let l:winids_to_skip = []
         endif
 
-        try
-            call s:hide_all_helper(l:winids_to_skip)
-        catch /^Vim\%((\a\+)\)\=:E444:/
-            " Catch errors when there are no 'normal' buffers left
-            " Fix this by creating an empty buffer
+        if s:only_terman_windows_left()
             top new
+        endif
 
-            call s:hide_all_helper(l:winids_to_skip)
-        endtry
+        call s:hide_all_helper(l:winids_to_skip)
 
         unlet g:_terman_skip_au
     endfunction
@@ -566,6 +562,21 @@
         endif
 
         return l:tabnr
+    endfunction
+
+    " Determine if there are only terminal buffers left in the current tab
+    function! s:only_terman_windows_left()
+        let l:key = s:get_key()
+        let l:fs_buf = s:get_fullscreen_buf(l:key)
+        let l:windows_in_tab = tabpagewinnr(v:lnum, '$')
+
+        let l:num_entries = l:fs_buf != -1 ? 1 : len(s:get_entries(l:key))
+
+        if l:num_entries == l:windows_in_tab
+            return 1
+        endif
+
+        return 0
     endfunction
 
 " --- Autocommands
