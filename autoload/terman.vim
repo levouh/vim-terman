@@ -21,15 +21,20 @@
                     " The terminal set is visible, hide it for this tab
                     call s:hide_all()
                     call s:toggle_visible(l:key)
+
+                    " Keep focus on the window that the closing happens from
+                    call s:focus_win(l:key, l:winid)
                 else
                     " The terminal set is not visible, show it for this tab
                     call s:open_all()
                     call s:toggle_visible(l:key)
+
+                    " Focus the buffer that was focused during the last session
+                    call s:focus_buf(l:key)
                 endif
             else
                 if l:is_visible
                     let l:visible_tabnr = s:get_set_tabnr()
-                    call add(g:_test, l:visible_tabnr)
 
                     if l:visible_tabnr == tabpagenr()
                         " The terminal set is visible on this tab, hide it
@@ -37,6 +42,9 @@
                         call win_gotoid(l:winid)
 
                         call s:toggle_visible(l:key)
+
+                        " Keep focus on the window that the closing happens from
+                        call s:focus_win(l:key, l:winid)
                     else
                         " The terminal set is visible on another tab, bring it to this one
                         call s:hide_all()
@@ -44,6 +52,9 @@
 
                         " Still open, so don't toggle visibility
                         call s:open_all()
+
+                        " Focus the buffer that was focused during the last session
+                        call s:focus_buf(l:key)
                     endif
                 else
                     " Not visible, for current window
@@ -54,7 +65,6 @@
         endif
 
         wincmd =
-        call s:focus_win(l:key, l:winid)
     endfunction
 
     " Create a new terminal, and store metadata pertaining to it
@@ -68,7 +78,7 @@
         endif
 
         " Base arguments used to create the buffer
-        let l:term_args = ' term ++close ++kill=term ' . g:terman_shell
+        let l:term_args = ' term ++close ++kill=hup ' . g:terman_shell
 
         " The root node has no parent, an empty 'a:mode' denotes creation of the root node
         let l:parent = empty(a:mode) ? '' : bufnr('%')
@@ -521,8 +531,15 @@
         let g:_terman_fullscreen_buf[a:key] = a:bufnr
     endfunction
 
-    " Bring focus to the window containing the passed buffer
-    function! s:focus_win(key, bufnr)
+    " Try to focus the passed window
+    function! s:focus_win(key, winid)
+        try
+            call win_gotoid(a:winid)
+        catch | | endtry
+    endfunction
+
+    " Focus the window containing the passed buffer
+    function! s:focus_buf(key)
         if s:is_visible(a:key) && has_key(g:_terman_focused_buf, a:key)
             try
                 exe bufwinnr(g:_terman_focused_buf[a:key]) . 'wincmd w'
