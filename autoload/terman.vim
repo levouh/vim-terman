@@ -39,7 +39,9 @@
                     if l:visible_tabnr == tabpagenr()
                         " The terminal set is visible on this tab, hide it
                         call s:hide_all()
-                        call win_gotoid(l:winid)
+
+                        " Keep focus on the window that the closing happens from
+                        call s:focus_win(l:key, l:winid)
 
                         call s:toggle_visible(l:key)
 
@@ -48,7 +50,9 @@
                     else
                         " The terminal set is visible on another tab, bring it to this one
                         call s:hide_all()
-                        call win_gotoid(l:winid)
+
+                        " Keep focus on the window that the closing happens from
+                        call s:focus_win(l:key, l:winid)
 
                         " Still open, so don't toggle visibility
                         call s:open_all()
@@ -78,7 +82,7 @@
         endif
 
         " Base arguments used to create the buffer
-        let l:term_args = ' term ++close ++kill=hup ' . g:terman_shell
+        let l:term_args = ' term ++close ++kill=kill ' . g:terman_shell
 
         " The root node has no parent, an empty 'a:mode' denotes creation of the root node
         let l:parent = empty(a:mode) ? '' : bufnr('%')
@@ -352,6 +356,31 @@
         endif
     endfunction
 
+    " Get rid of a tab and it's terminal set when the tab is closed.
+    function! terman#tab_closed()
+        let l:known_tabs = {}
+        for l:tabnr in range(1, tabpagenr('$'))
+            let l:known_tabs[l:tabnr] = 1
+        endfor
+
+        for [l:tabnr, l:bufs] in items(g:_terman_terminal_set)
+            if !has_key(l:known_tabs, l:tabnr)
+                " Wipeout the terman buffers as they are attached to the closed tab
+                if g:terman_per_tab
+                    for l:bufinfo in l:bufs
+                        let l:bufnr = l:bufinfo.bufnr
+
+                        try
+                            exe 'bwipeout' . bufnr(l:bufnr)
+                        catch | | endtry
+                    endfor
+
+                    unlet g:_terman_terminal_set[l:tabnr]
+                endif
+            endif
+        endfor
+    endfunction
+
 " --- Private Functions
 
     " Get the accessor key to use based on global settings
@@ -369,9 +398,9 @@
             let l:winids_to_skip = []
         endif
 
-        if s:only_terman_windows_left()
-            top new
-        endif
+        " if s:only_terman_windows_left()
+        "     top new
+        " endif
 
         call s:hide_all_helper(l:winids_to_skip)
 
@@ -381,8 +410,10 @@
     " Functionality for hiding buffers
     function! s:hide_all_helper(winids_to_skip)
         let l:key = s:get_key()
+        let l:made_new_already = 0
+        let l:entries = s:get_entries(l:key)
 
-        for l:entry in s:get_entries(l:key)
+        for l:entry in l:entries
             let l:winids = win_findbuf(l:entry.bufnr)
 
             for l:winid in l:winids
@@ -391,8 +422,19 @@
                     continue
                 endif
 
-                " Now hide it
+                " Go to the window before checking
                 call win_gotoid(l:winid)
+
+                if s:only_terman_windows_left() && !l:made_new_already
+                    " Create a new split to prevent errors
+                    top new
+
+                    " Focus changes due to above, now go back
+                    call win_gotoid(l:winid)
+
+                    " Only do this once
+                    let l:made_new_already = 1
+                endif
 
                 hide
             endfor
@@ -581,12 +623,34 @@
         return l:tabnr
     endfunction
 
+    function! s:visible_on_current_tab()
+        " Only used when hiding, so if there is only one set it
+        " has to be visible
+        if g:terman_per_tab
+            return 1
+        endif
+
+        let l:key = s:get_key()
+        let l:term_bufs = s:get_entries(l:key)
+        let l:tab_bufs = tabpagebuflist()
+
+        for l:term_buf in l:term_bufs
+            if index(l:tab_bufs, l:term_buf) >= 0
+                return 1
+            endif
+        endfor
+
+        return 0
+    endfunction
+
     " Determine if there are only terminal buffers left in the current tab
     function! s:only_terman_windows_left()
         let l:key = s:get_key()
+
         let l:fs_buf = s:get_fullscreen_buf(l:key)
         let l:windows_in_tab = tabpagewinnr(v:lnum, '$')
 
+        " There is a fullscreened buffer, so we only expect a single terman window
         let l:num_entries = l:fs_buf != -1 ? 1 : len(s:get_entries(l:key))
 
         if l:num_entries == l:windows_in_tab
@@ -604,4 +668,5 @@
         " Track which buffer is focused for a more natural experience when toggling
         au BufEnter * call s:set_focused(s:get_key(), bufnr('%'))
         au BufDelete * call terman#close()
+        au TabClosed * call terman#tab_closed()
     augroup END
