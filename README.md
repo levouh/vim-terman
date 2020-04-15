@@ -1,3 +1,3 @@
 ## vim-terman
 
-Personal use plugin to manage :ter buffers, feel free to use it if you want. Let me know if you have problems.
+Personal use plugin to manage `:ter` buffers, feel free to use it as well. Let me know if you have problems.
