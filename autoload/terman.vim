@@ -1,5 +1,33 @@
 " --- Public Functions
 
+    " Toggle a popup terminal window
+    function! terman#float()
+        " Check if it exists already
+        let l:bufnr = bufnr(g:_terman_float_name)
+
+        if l:bufnr == -1 || !bufloaded(l:bufnr)
+            " It doesn't exist, create it
+            let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
+        else
+            if exists('g:_terman_float_winid')
+                " Created, visible
+                try
+                    call popup_close(g:_terman_float_winid)
+                catch
+                    hide
+                endtry
+
+                unlet g:_terman_float_winid
+            else
+                " Created, not visible
+                let l:opts = g:terman_popup_opts
+                let l:opts.bufnr = l:bufnr
+
+                let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
+            endif
+        endif
+    endfunction
+
     " Toggle the visibility of the terminal set
     function! terman#toggle()
         if !exists('g:_terman_visible_state')
@@ -659,6 +687,43 @@
 
         return 0
     endfunction
+
+    " Helper for s:popup, based on fzf.vim
+    function! s:create_popup(opts) abort
+        let width = min([max([0, float2nr(&columns * a:opts.width)]), &columns])
+        let height = min([max([0, float2nr(&lines * a:opts.height)]), &lines - has('nvim')])
+        let row = float2nr(get(a:opts, 'yoffset', 0.5) * (&lines - height))
+        let col = float2nr(get(a:opts, 'xoffset', 0.5) * (&columns - width))
+
+        " Managing the differences
+        let row = min([max([0, row]), &lines - has('nvim') - height])
+        let col = min([max([0, col]), &columns - width])
+        let row += !has('nvim')
+        let col += !has('nvim')
+
+        if !has_key(a:opts, 'bufnr')
+            let l:bufnr = term_start(
+                \ g:terman_shell,
+                \ #{
+                    \ term_name: g:_terman_float_name,
+                    \ hidden: 1,
+                    \ term_finish: 'close'
+            \ })
+        else
+            let l:bufnr = a:opts.bufnr
+        endif
+
+        return popup_create(l:bufnr, #{
+            \ line: row,
+            \ col: col,
+            \ minwidth: width,
+            \ minheight: height,
+            \ zindex: 50,
+            \ border: [],
+            \ borderhighlight: [a:opts.highlight],
+        \ })
+    endfunction
+
 
 " --- Autocommands
 

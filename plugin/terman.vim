@@ -1,4 +1,4 @@
-" --- Verification
+" --- Verification {{{
 
     if exists('g:_loaded_terman') || v:version < 802
         finish
@@ -6,7 +6,9 @@
 
     let g:_loaded_terman = 1
 
-" --- Options
+" }}}
+
+" --- Options {{{
 
     let g:terman_shell = get(g:, 'terman_shell', &shell)
 
@@ -16,7 +18,19 @@
 
     let g:terman_per_tab = get(g:, 'terman_per_tab', 1)
 
-" --- Variables
+    hi TermanBorder ctermfg=248 ctermbg=NONE guifg=#a8a8a8 guibg=NONE
+
+    if !exists('g:terman_popup_opts')
+        let g:terman_popup_opts = {
+                \ 'width': 0.9,
+                \ 'height': 0.6,
+                \ 'highlight': 'TermanBorder'
+        \ }
+    endif
+
+" }}}
+
+" --- Variables {{{
 
     " A list of terminal buffer entries managed by terman,
     " optionally split by tab
@@ -34,7 +48,12 @@
     " Track what buffer was focused when toggling
     let g:_terman_focused_buf = {}
 
-" --- Commands
+    " Name of the floating term buffer
+    let g:_terman_float_name = '_terman_float_buf'
+
+" }}}
+
+" --- Commands {{{
 
     " Open a terminal buffer in a new split
     command TermanVert call terman#create('v')
@@ -49,3 +68,8 @@
     " Swap the position of two terminal buffer windows
     command TermanMark call terman#mark()
     command TermanPaste call terman#paste()
+
+    " Toggle a popup terminal buffer
+    command TermanFloatToggle call terman#float()
+
+" }}}
