@@ -1,32 +1,4 @@
-" --- Public Functions
-
-    " Toggle a popup terminal window
-    function! terman#float()
-        " Check if it exists already
-        let l:bufnr = bufnr(g:_terman_float_name)
-
-        if l:bufnr == -1 || !bufloaded(l:bufnr)
-            " It doesn't exist, create it
-            let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
-        else
-            if exists('g:_terman_float_winid')
-                " Created, visible
-                try
-                    call popup_close(g:_terman_float_winid)
-                catch
-                    hide
-                endtry
-
-                unlet g:_terman_float_winid
-            else
-                " Created, not visible
-                let l:opts = g:terman_popup_opts
-                let l:opts.bufnr = l:bufnr
-
-                let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
-            endif
-        endif
-    endfunction
+" --- Public Functions {{{
 
     " Toggle the visibility of the terminal set
     function! terman#toggle()
@@ -409,7 +381,48 @@
         endfor
     endfunction
 
-" --- Private Functions
+    " Toggle a popup terminal window
+    function! terman#float()
+        " Check if it exists already
+        let l:bufnr = bufnr(g:_terman_float_name)
+
+        if l:bufnr == -1 || !bufloaded(l:bufnr)
+            " It doesn't exist, create it
+            let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
+        else
+            if exists('g:_terman_float_winid')
+                " Created, visible
+                try
+                    call popup_close(g:_terman_float_winid)
+                catch
+                    hide
+                endtry
+
+                unlet g:_terman_float_winid
+            else
+                " Created, not visible
+                let l:opts = g:terman_popup_opts
+                let l:opts.bufnr = l:bufnr
+
+                let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
+            endif
+        endif
+    endfunction
+
+    " Toggle the terminal set being fullscreen in the current window
+    function! terman#hide_others()
+        for l:buf in tabpagebuflist()
+            if !getbufvar(l:buf, '_terman_buffer')
+                exe bufwinnr(l:buf) . 'wincmd w'
+
+                hide
+            endif
+        endfor
+    endfunction
+
+" }}}
+
+" --- Private Functions {{{
 
     " Get the accessor key to use based on global settings
     function! s:get_key()
@@ -724,8 +737,9 @@
         \ })
     endfunction
 
+" }}}
 
-" --- Autocommands
+" --- Autocommands {{{
 
     augroup terman
         au!
@@ -735,3 +749,5 @@
         au BufDelete * call terman#close()
         au TabClosed * call terman#tab_closed()
     augroup END
+
+" }}}

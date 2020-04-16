@@ -69,6 +69,9 @@
     command TermanMark call terman#mark()
     command TermanPaste call terman#paste()
 
+    " Hide non Terman buffers
+    command TermanHideOthers call terman#hide_others()
+
     " Toggle a popup terminal buffer
     command TermanFloatToggle call terman#float()
 
