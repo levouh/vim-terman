@@ -51,6 +51,9 @@
     " Name of the floating term buffer
     let g:_terman_float_name = '_terman_float_buf'
 
+    " ID for each tab, as number can change
+    let g:_terman_tab_idx = 0
+
 " }}}
 
 " --- Commands {{{

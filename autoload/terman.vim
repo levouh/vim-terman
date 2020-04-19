@@ -34,9 +34,9 @@
                 endif
             else
                 if l:is_visible
-                    let l:visible_tabnr = s:get_set_tabnr()
+                    let l:visible_tabid = s:get_set_tabid()
 
-                    if l:visible_tabnr == tabpagenr()
+                    if l:visible_tabid == s:get_tabid()
                         " The terminal set is visible on this tab, hide it
                         call s:hide_all()
 
@@ -363,7 +363,9 @@
             let l:known_tabs[l:tabnr] = 1
         endfor
 
-        for [l:tabnr, l:bufs] in items(g:_terman_terminal_set)
+        for [l:tabid, l:bufs] in items(g:_terman_terminal_set)
+            let l:tabnr = s:get_tabnr(l:tabid)
+
             if !has_key(l:known_tabs, l:tabnr)
                 " Wipeout the terman buffers as they are attached to the closed tab
                 if g:terman_per_tab
@@ -375,7 +377,7 @@
                         catch | | endtry
                     endfor
 
-                    unlet g:_terman_terminal_set[l:tabnr]
+                    unlet g:_terman_terminal_set[l:tabid]
                 endif
             endif
         endfor
@@ -426,7 +428,16 @@
 
     " Get the accessor key to use based on global settings
     function! s:get_key()
-        return g:terman_per_tab ? tabpagenr() : g:_terman_key
+        if !g:terman_per_tab
+            return g:_terman_key
+        else
+            if !exists('t:_terman_tab_id')
+                let t:_terman_tab_id = g:_terman_tab_idx
+                let g:_terman_tab_idx = g:_terman_tab_idx + 1
+            endif
+
+            return t:_terman_tab_id
+        endif
     endfunction
 
     " Hide all currently visible buffers of the terminal set
@@ -439,10 +450,6 @@
             let l:winids_to_skip = []
         endif
 
-        " if s:only_terman_windows_left()
-        "     top new
-        " endif
-
         call s:hide_all_helper(l:winids_to_skip)
 
         unlet g:_terman_skip_au
@@ -453,6 +460,10 @@
         let l:key = s:get_key()
         let l:made_new_already = 0
         let l:entries = s:get_entries(l:key)
+
+        " Want to get the count initially, as it will change as windows
+        " are hidden
+        let l:otbl = s:only_terman_windows_left()
 
         for l:entry in l:entries
             let l:winids = win_findbuf(l:entry.bufnr)
@@ -466,7 +477,7 @@
                 " Go to the window before checking
                 call win_gotoid(l:winid)
 
-                if s:only_terman_windows_left() && !l:made_new_already
+                if l:otbl && !l:made_new_already
                     " Create a new split to prevent errors
                     top new
 
@@ -638,7 +649,8 @@
         endif
     endfunction
 
-    function! s:get_set_tabnr()
+    " Get the tab ID that a set is visible on
+    function! s:get_set_tabid()
         let l:tabnr = tabpagenr()
         let l:key = s:get_key()
 
@@ -661,7 +673,7 @@
             endtry
         endif
 
-        return l:tabnr
+        return s:get_tabid(l:tabnr)
     endfunction
 
     function! s:visible_on_current_tab()
@@ -735,6 +747,30 @@
             \ border: [],
             \ borderhighlight: [a:opts.highlight],
         \ })
+    endfunction
+
+    " Get the _terman_tab_id from a tabnr, default to current tab
+    function! s:get_tabid(...)
+        if a:0
+            return gettabvar(a:1, '_terman_tab_id', -1)
+        else
+            return t:_terman_tab_id
+        endif
+    endfunction
+
+    " Get the tab number from a _terman_tab_id
+    function! s:get_tabnr(tabid)
+        for l:tabnr in range(1, tabpagenr('$'))
+            let l:tabid = gettabvar(l:tabnr, '_terman_tab_id', -1)
+
+            if l:tabid != -1
+                if l:tabid == a:tabid
+                    return l:tabnr
+                endif
+            endif
+        endfor
+
+        return -1
     endfunction
 
 " }}}
