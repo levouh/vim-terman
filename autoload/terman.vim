@@ -223,13 +223,13 @@
 
         if !s:has_fullscreen_buf(l:key)
             " No window is currently full-screened
-            call s:hide_all(win_getid())
-
+            call s:hide_all(l:fs_winid)
             call s:set_fullscreen_buf(l:key, bufnr('%'))
         else
             " Some window is already full-screened
             let l:fs_buf = s:get_fullscreen_buf(l:key)
 
+            " Just incase
             if l:fs_buf == -1
                 return
             endif
@@ -241,6 +241,13 @@
 
             call s:open_all()
         endif
+
+        if s:others_hidden(l:key)
+            " Re-hide non-terman buffers if they were hidden before
+            call s:hide_others()
+        endif
+
+        wincmd =
     endfunction
 
     " Mark a buffer in the terminal set
@@ -412,14 +419,14 @@
     endfunction
 
     " Toggle the terminal set being fullscreen in the current window
+    " This function is for public use to denote a change of state, the private
+    " version is used at various places in this script where we don't want to
+    " toggle the state
     function! terman#hide_others()
-        for l:buf in tabpagebuflist()
-            if !getbufvar(l:buf, '_terman_buffer')
-                exe bufwinnr(l:buf) . 'wincmd w'
+        let l:key = s:get_key()
 
-                hide
-            endif
-        endfor
+        call s:toggle_hide_others(l:key)
+        call s:hide_others()
     endfunction
 
 " }}}
@@ -771,6 +778,42 @@
         endfor
 
         return -1
+    endfunction
+
+    " Toggle the state of hide others
+    function! s:toggle_hide_others(key)
+        if !has_key(g:_terman_hide_others_state, a:key)
+            " Can't un-hide things if they haven't been hidden yet
+            let g:_terman_hide_others_state[a:key] = 1
+
+            return
+        endif
+
+        if g:_terman_hide_others_state[a:key] == 1
+            let g:_terman_hide_others_state[a:key] = 0
+        else
+            let g:_terman_hide_others_state[a:key] = 1
+        endif
+    endfunction
+
+    " Private function to hide all non-terman buffers
+    function! s:hide_others()
+        for l:buf in tabpagebuflist()
+            if !getbufvar(l:buf, '_terman_buffer')
+                exe bufwinnr(l:buf) . 'wincmd w'
+
+                hide
+            endif
+        endfor
+    endfunction
+
+    " Get the state of whether or not non-terman buffers are hidden
+    function! s:others_hidden(key)
+        if !has_key(g:_terman_hide_others_state, a:key)
+            let g:_terman_hide_others_state[a:key] = 0
+        endif
+
+        return g:_terman_hide_others_state[a:key]
     endfunction
 
 " }}}

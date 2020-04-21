@@ -45,6 +45,9 @@
     " Whether or not the terminal set is visible
     let g:_terman_visible_state = {}
 
+    " Whether or not non-terman windows are hidden
+    let g:_terman_hide_others_state = {}
+
     " Track what buffer was focused when toggling
     let g:_terman_focused_buf = {}
 
