@@ -18,7 +18,7 @@
 
     let g:terman_per_tab = get(g:, 'terman_per_tab', 1)
 
-    hi TermanBorder ctermfg=248 ctermbg=NONE guifg=#a8a8a8 guibg=NONE
+    hi default link Ignore TermanBorder
 
     if !exists('g:terman_popup_opts')
         let g:terman_popup_opts = {

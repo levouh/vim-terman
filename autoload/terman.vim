@@ -220,6 +220,8 @@
     " Make a single terminal window within the set fullscreen
     function! terman#fullscreen()
         let l:key = s:get_key()
+        let l:fs_winid = win_getid()
+        let l:bufnr = bufnr()
 
         if !s:has_fullscreen_buf(l:key)
             " No window is currently full-screened
@@ -247,6 +249,7 @@
             call s:hide_others()
         endif
 
+        exe bufwinnr(l:bufnr) . 'wincmd w'
         wincmd =
     endfunction
 
@@ -427,6 +430,8 @@
 
         call s:toggle_hide_others(l:key)
         call s:hide_others()
+
+        wincmd =
     endfunction
 
 " }}}
@@ -745,14 +750,17 @@
             let l:bufnr = a:opts.bufnr
         endif
 
-        return popup_create(l:bufnr, #{
-            \ line: row,
-            \ col: col,
-            \ minwidth: width,
-            \ minheight: height,
-            \ zindex: 50,
-            \ border: [],
-            \ borderhighlight: [a:opts.highlight],
+        return popup_create(l:bufnr, {
+            \ 'line': row,
+            \ 'col': col,
+            \ 'minwidth': width,
+            \ 'minheight': height,
+            \ 'maxwidth': width,
+            \ 'maxheight': height,
+            \ 'zindex': 50,
+            \ 'border': [1,1,1,1],
+            \ 'borderchars': ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
+            \ 'borderhighlight': [a:opts.highlight],
         \ })
     endfunction
 
