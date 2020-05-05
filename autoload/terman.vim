@@ -71,6 +71,19 @@
         wincmd =
     endfunction
 
+    " Callback used when a terminal buffer is closed, used to ensure
+    " that the right 'tabid' can be grabbed as this appears to happen
+    " bfeore the tab is actually closed, unlike BufDelete
+    function! terman#close_cb(job, exit_status)
+        let l:tabid = get(t:, '_terman_tab_id', -1)
+
+        if l:tabid == -1
+            return
+        endif
+
+        call terman#close(l:tabid)
+    endfunction
+
     " Create a new terminal, and store metadata pertaining to it
     function! terman#create(mode)
         let l:key = s:get_key()
@@ -81,23 +94,30 @@
             return
         endif
 
-        " Base arguments used to create the buffer
-        let l:term_args = ' term ++close ++kill=kill ' . g:terman_shell
-
         " The root node has no parent, an empty 'a:mode' denotes creation of the root node
         let l:parent = empty(a:mode) ? '' : bufnr('%')
 
         if empty(a:mode)
             " When starting fresh, open on the bottom
-            " TODO: Make position configurable
-            let l:term_args = 'bot' . l:term_args
+            let l:term_pos = 'bot'
         elseif a:mode == 'v'
             " Open a new vertical split terminal, the arguments are already setup for
             " horizontally splitting a new terminal buffer
-            let l:term_args = 'vert' . l:term_args
+            let l:term_pos = 'vert'
         endif
 
-        exe l:term_args
+        " Open the new split first
+        exe l:term_pos . ' new'
+
+        " Now start a terminal in the split
+        call term_start(
+            \ g:terman_shell,
+            \ {
+                \ 'exit_cb': function('terman#close_cb'),
+                \ 'term_kill': 'kill',
+                \ 'term_finish': 'close',
+                \ 'curwin': v:true
+            \ })
 
         " Mark it as one of the set
         let b:_terman_buffer = 1
@@ -109,12 +129,12 @@
                 \ 'parent': l:parent
         \ }
 
-        " As intuitive as it is, an index of '-1' means append to the list
+        " As intuitive as it is, an index of -1 means append to the list
         call s:add_entry(l:key, -1, l:entry)
     endfunction
 
     " Remove a buffer from the terminal set
-    function! terman#close()
+    function! terman#close(...)
         if !exists('b:_terman_buffer')
             " Buffer not in the terminal set
             return
@@ -124,7 +144,12 @@
             return
         endif
 
-        let l:key = s:get_key()
+        if a:0
+            let l:key = a:1
+        else
+            let l:key = s:get_key()
+        endif
+
         let l:entries = s:get_entries(l:key)
 
         if empty(l:entries)
@@ -238,7 +263,7 @@
 
             call s:hide_all()
 
-            " A value of '-1' denotes that nothing is full-screened
+            " A value of -1 denotes that nothing is full-screened
             call s:set_fullscreen_buf(l:key, -1)
 
             call s:open_all()
@@ -833,7 +858,6 @@
 
         " Track which buffer is focused for a more natural experience when toggling
         au BufEnter * call s:set_focused(s:get_key(), bufnr('%'))
-        au BufDelete * call terman#close()
         au TabClosed * call terman#tab_closed()
     augroup END
 
