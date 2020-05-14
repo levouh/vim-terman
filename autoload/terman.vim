@@ -96,6 +96,7 @@
 
         " The root node has no parent, an empty 'a:mode' denotes creation of the root node
         let l:parent = empty(a:mode) ? '' : bufnr('%')
+        let l:term_pos = ''
 
         if empty(a:mode)
             " When starting fresh, open on the bottom
