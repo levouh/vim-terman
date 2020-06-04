@@ -42,9 +42,6 @@
     " The buffer that is currently fullscreened within the set
     let g:_terman_fullscreen_buf = {}
 
-    " Whether or not the terminal set is visible
-    let g:_terman_visible_state = {}
-
     " Whether or not non-terman windows are hidden
     let g:_terman_hide_others_state = {}
 

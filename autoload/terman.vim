@@ -2,17 +2,12 @@
 
     " Toggle the visibility of the terminal set
     function! terman#toggle()
-        if !exists('g:_terman_visible_state')
-            return
-        endif
-
         let l:key = s:get_key()
         let l:winid = win_getid()
 
         if empty(s:get_entries(l:key))
             " Create the root node
             call terman#create('')
-            call s:toggle_visible(l:key)
         else
             let l:is_visible = s:is_visible(l:key)
 
@@ -20,14 +15,12 @@
                 if l:is_visible
                     " The terminal set is visible, hide it for this tab
                     call s:hide_all()
-                    call s:toggle_visible(l:key)
 
                     " Keep focus on the window that the closing happens from
                     call s:focus_win(l:key, l:winid)
                 else
                     " The terminal set is not visible, show it for this tab
                     call s:open_all()
-                    call s:toggle_visible(l:key)
 
                     " Focus the buffer that was focused during the last session
                     call s:focus_buf(l:key)
@@ -42,8 +35,6 @@
 
                         " Keep focus on the window that the closing happens from
                         call s:focus_win(l:key, l:winid)
-
-                        call s:toggle_visible(l:key)
 
                         " Keep focus on the window that the closing happens from
                         call s:focus_win(l:key, l:winid)
@@ -63,7 +54,6 @@
                 else
                     " Not visible, for current window
                     call s:open_all()
-                    call s:toggle_visible(l:key)
                 endif
             endif
         endif
@@ -229,11 +219,6 @@
         endif
 
         let l:cur_entries = s:get_entries(l:key)
-
-        " See if this was the last buffer
-        if empty(l:cur_entries)
-            let g:_terman_visible_state[l:key] = 0
-        endif
 
         " See if this buffer was marked as fullscreen
         let l:fs_buf = s:get_fullscreen_buf(l:key)
@@ -620,20 +605,15 @@
 
     " Determine if the terminal set is visible
     function! s:is_visible(key)
-        if exists('g:_terman_visible_state') && has_key(g:_terman_visible_state, a:key) && g:_terman_visible_state[a:key] == 1
-            return 1
+        " The tab that the set is visible on
+        " Argument can be anything
+        let l:is_visible = s:get_set_tabid(v:true)
+
+        if l:is_visible == -1
+            return 0
         endif
 
-        return 0
-    endfunction
-
-    " Toggle the visibility state of the terminal buffer set
-    function! s:toggle_visible(key)
-        if s:is_visible(a:key)
-            let g:_terman_visible_state[a:key] = 0
-        else
-            let g:_terman_visible_state[a:key] = 1
-        endif
+        return 1
     endfunction
 
     " Determine if any buffer is currently fullscreened
@@ -688,8 +668,15 @@
     endfunction
 
     " Get the tab ID that a set is visible on
-    function! s:get_set_tabid()
-        let l:tabnr = tabpagenr()
+    function! s:get_set_tabid(...)
+        if a:0
+            " If arguments were passed, return -1
+            " as a sign that nothing was found
+            let l:tabnr = -1
+        else
+            let l:tabnr = tabpagenr()
+        endif
+
         let l:key = s:get_key()
 
         if exists('g:_terman_key')
@@ -711,16 +698,14 @@
             endtry
         endif
 
-        return s:get_tabid(l:tabnr)
+        if l:tabnr == -1
+            return l:tabnr
+        else
+            return s:get_tabid(l:tabnr)
+        endif
     endfunction
 
     function! s:visible_on_current_tab()
-        " Only used when hiding, so if there is only one set it
-        " has to be visible
-        if g:terman_per_tab
-            return 1
-        endif
-
         let l:key = s:get_key()
         let l:term_bufs = s:get_entries(l:key)
         let l:tab_bufs = tabpagebuflist()
