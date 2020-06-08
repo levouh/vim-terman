@@ -1,4 +1,4 @@
-" --- Verification {{{
+" Verification {{{1
 
     if exists('g:_loaded_terman') || v:version < 802
         finish
@@ -6,21 +6,17 @@
 
     let g:_loaded_terman = 1
 
-" }}}
+" Options {{{1
 
-" --- Options {{{
-
-    let g:terman_shell = get(g:, 'terman_shell', &shell)
-
-    if !executable(g:terman_shell)
-        finish
-    endif
-
+    " Each tab can have it's own terminal set, or there can be
+    " a single global terminal set used for all tabs
     let g:terman_per_tab = get(g:, 'terman_per_tab', 1)
 
+    " The border for the popup terminal window
     hi default link Ignore TermanBorder
 
     if !exists('g:terman_popup_opts')
+        " Used when configuring the popup window
         let g:terman_popup_opts = {
                 \ 'width': 0.9,
                 \ 'height': 0.6,
@@ -28,54 +24,75 @@
         \ }
     endif
 
-" }}}
+" Variables {{{1
 
-" --- Variables {{{
+    " A sequence that is incremented each time a new tab is created, so
+    " that each tab has a unique identifier.
+    let g:_terman_tab_id = 0
 
-    " A list of terminal buffer entries managed by terman,
-    " optionally split by tab
-    let g:_terman_terminal_set = {}
-
-    " The generic key to be used if not using terman_per_tab
+    " The generic key to be used if not using "g:terman_per_tab",
+    " this way the only key in the above dictionary will be this one
+    " and a single terminal set is always used
     let g:_terman_key = 'base'
 
-    " The buffer that is currently fullscreened within the set
-    let g:_terman_fullscreen_buf = {}
+    " A list of terminal buffer entries managed by terman,
+    " optionally split by tab.
+    "
+    " Because ":h tabpagenr()" will just return an 'index'
+    " of a tab rather than a unique identifier like ":h bufnr()",
+    " each key will be a tab 'ID' which is managed/tracked by
+    " this plugin
+    "
+    " The dictionary will look like:
+    "   { '<tabid': [ {'<term_indo>'}, ...] }
+    " let g:_terman_terminal_set = {}
 
-    " Whether or not non-terman windows are hidden
-    let g:_terman_hide_others_state = {}
 
-    " Track what buffer was focused when toggling
-    let g:_terman_focused_buf = {}
+    " " The buffer that is currently maximized within the set, which
+    " " means that the other buffers are hidden. The user can change
+    " " this through non-terman commands, but the next time the set is
+    " " updated/toggled, terman will just use the information knows
+    " " about
+    " let g:_terman_maximized_state = {}
 
-    " Name of the floating term buffer
-    let g:_terman_float_name = '_terman_float_buf'
+    " " Whether or not non-terman windows are hidden, so that when
+    " " something is 'fullscreen', no non-terman buffers are visible
+    " let g:_terman_fullscreen_state = {}
 
-    " ID for each tab, as number can change
-    let g:_terman_tab_idx = 0
+    " " Track what buffer was focused when toggling, this only serves
+    " " to provide a more fluid experience so that when toggling the set
+    " " if a specific buffer was focused when it was hidden, it will be
+    " " focused again when it is toggled into view
+    " "
+    " " This is tracked through autocommands, which are enabled/disabled
+    " " at certain timed. The group for this is "terman".
+    " let g:_terman_focused_buf = {}
 
-" }}}
+    " " Name of the floating term buffer. Note that only a single popup
+    " " terminal can exist at any given time, so the name here can just stay
+    " " consistent.
+    " let g:_terman_float_name = '_terman_float_buf'
 
-" --- Commands {{{
-
-    " Open a terminal buffer in a new split
-    command TermanVert call terman#create('v')
-    command TermanSplit call terman#create('s')
-
-    " Fullscreen a particular terminal buffer within the set
-    command TermanFullscreen call terman#fullscreen()
+" Commands {{{1
 
     " Toggle the terminal set
     command TermanToggle call terman#toggle()
 
-    " Swap the position of two terminal buffer windows
-    command TermanMark call terman#mark()
-    command TermanPaste call terman#paste()
+    " Open a terminal buffer in a new split
+    command TermanVertical call terman#new(1)
+    command TermanHorizontal call terman#new(0)
+    "                                        │
+    "                                        └ argument specifies if vertical or not
 
-    " Hide non Terman buffers
-    command TermanHideOthers call terman#hide_others()
+    " " Maximize a particular terminal buffer within the set
+    " command TermanMaximize call terman#maximize()
 
-    " Toggle a popup terminal buffer
-    command TermanFloatToggle call terman#float()
+    " " Hide non-terman buffers
+    " command TermanFullscreen call terman#fullscreen()
 
-" }}}
+    " " Swap the position of two terminal buffer windows
+    " command TermanMark call terman#mark()
+    " command TermanPaste call terman#paste()
+
+    " " Toggle a popup terminal buffer
+    " command TermanFloatToggle call terman#float()

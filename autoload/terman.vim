@@ -1,850 +1,462 @@
-" --- Public Functions {{{
+" Variables {{{1
 
-    " Toggle the visibility of the terminal set
-    function! terman#toggle()
-        let l:key = s:get_key()
-        let l:winid = win_getid()
+const s:ROOT = "bot"
+const s:VERTICAL = "vert"
+const s:HORIZONTAL = ""
 
-        if empty(s:get_entries(l:key))
-            " Create the root node
-            call terman#create('')
+" TerminalSet {{{1
+    " Global {{{2
+    "
+    " This is necessary so that the 'type' is defined
+    let s:TerminalSetObject = {}
+
+    fu! s:TerminalSetObject.new(id) " {{{2
+        " Create a new "TermanalSet" object and initialize
+        " it's instance variables.
+        let new = copy(self)
+        let new.info = []
+        let new.maximized = v:none
+
+        " The "ID" for any terminal set is the tab that it is associated
+        " with. Based on settings, it could be associated with a single
+        " tab or multiple, so access to this variable should always be
+        " done through the function "get_id()".
+        let new.id = a:id
+
+        return new
+    endfu
+
+    fu! s:TerminalSetObject.get_id() " {{{2
+        " Determine whether or not this terminal set has a buffer that
+        " has been explicitly maximized by the user.
+        if get(g:, 'terman_per_tab', 1)
+            return self.id
         else
-            let l:is_visible = s:is_visible(l:key)
+            return tabpagenr()
+        endif
+    endfu
 
-            if g:terman_per_tab
-                if l:is_visible
-                    " The terminal set is visible, hide it for this tab
-                    call s:hide_all()
+    fu! s:TerminalSetObject.get_tabnr() " {{{2
+        if get(g:, 'terman_per_tab', 1)
+            " In the case that this option is set, the value of "self.get_id()"
+            " will be a terman-defined tab 'ID', so we need to get the
+            " Vim-defined tab number from it
+            return s:get_tabnr(self.get_id())
+        endif
 
-                    " Keep focus on the window that the closing happens from
-                    call s:focus_win(l:key, l:winid)
-                else
-                    " The terminal set is not visible, show it for this tab
-                    call s:open_all()
+        " In the opposite case, the value of "self.get_id()" is already
+        " a Vim-defined tab number
+        return self.get_id()
+    endfu
 
-                    " Focus the buffer that was focused during the last session
-                    call s:focus_buf(l:key)
-                endif
-            else
-                if l:is_visible
-                    let l:visible_tabid = s:get_set_tabid()
+    fu! s:TerminalSetObject.is_empty() " {{{2
+        " Determine if this "TerminalSetObject" object is currently
+        " tracking any buffers or not. Will return "v:true"
+        " in the case that it _is_ empty, and "v:false"
+        " otherwise.
+        if empty(self.info)
+            return v:true
+        endif
 
-                    if l:visible_tabid == s:get_tabid()
-                        " The terminal set is visible on this tab, hide it
-                        call s:hide_all()
+        return v:false
+    endfu
 
-                        " Keep focus on the window that the closing happens from
-                        call s:focus_win(l:key, l:winid)
+    fu! s:TerminalSetObject.is_visible() " {{{2
+        " Determine whether or not a this terminal set is visible.
+        "
+        " This has to be done programatically by checking what is visible,
+        " because the user could do something like "wincmd o" on a non-terminal
+        " buffer.
+        if self.is_empty()
+            return v:false
+        endif
 
-                        " Keep focus on the window that the closing happens from
-                        call s:focus_win(l:key, l:winid)
-                    else
-                        " The terminal set is visible on another tab, bring it to this one
-                        call s:hide_all()
+        if self.maximized isnot# v:none
+            " There is a maximized buffer, so the visibility check
+            " should only involve this buffer as it is the only
+            " one that _could_ be visible
+            return bufwinid(self.maximized) == -1
+        endif
 
-                        " Keep focus on the window that the closing happens from
-                        call s:focus_win(l:key, l:winid)
-
-                        " Still open, so don't toggle visibility
-                        call s:open_all()
-
-                        " Focus the buffer that was focused during the last session
-                        call s:focus_buf(l:key)
-                    endif
-                else
-                    " Not visible, for current window
-                    call s:open_all()
-                endif
+        " In the other case, if nothing has been maximized we have
+        " to look at each buffer as the user could hide buffers manually,
+        " otherwise something like:
+        "   bufwinid(self.info[0].bufnr) == -1
+        " would work just fine.
+        for buf_info in self.info
+            if bufwinid(buf_info.bufnr) != -1
+                return v:true
             endif
+        endfor
+
+        return v:false
+    endfu
+
+    fu! s:TerminalSetObject.is_maximized() " {{{2
+        " Determine whether or not this terminal set has a buffer that
+        " has been explicitly maximized by the user.
+        if self.is_empty()
+            return v:false
+        endif
+    endfu
+
+    fu! s:TerminalSetObject.create_terminal(...) " {{{2
+        " Create a new terminal buffer based on the passed arguments.
+        "
+        " There are a few caveats, the first being that a new Terman-managed
+        " terminal buffer can only be created from an existing one. Next,
+        " if none exist, one will be created in the globally configured
+        " position.
+        "
+        " This case happens when the terminal set is empty, but that check
+        " must be determined by the caller before calling this function.
+        " The function "self.is_empty" is provided for that check.
+        let orientation = s:ROOT
+
+        if a:0
+            " Only need to perform this check in the case that we are not
+            " starting a completely new terminal set.
+            if empty(getbufvar(bufnr(), '_terman_buf'))
+                " It isn't a terman buffer or the root, so we shouldn't
+                " allow a new split to be opened.
+                echoerr "ERROR: Can only open a new terman-terminal buffer from an existing one"
+
+                return
+            endif
+
+            " When an argument is passed, this will not create a _new_
+            " terminal window, but instead use the argument as the orientation
+            " to create a new one.
+            let orientation = a:1
         endif
 
-        wincmd =
-    endfunction
+        echom 'DEBUG TermanObject.create_terminal: orientation=' .. orientation
 
-    " Callback used when a terminal buffer is closed, used to ensure
-    " that the right 'tabid' can be grabbed as this appears to happen
-    " bfeore the tab is actually closed, unlike BufDelete
-    function! terman#close_cb(job, exit_status)
-        let l:tabid = get(t:, '_terman_tab_id', -1)
+        " Before we open a new split, we need to know what buffer we are starting
+        " from as this denotes the "parent" of the buffer being created
+        let parent = bufnr()
 
-        if l:tabid == -1
-            return
+        " The "vertical" arguments to ":h term_start()" mention that they can provide
+        " other orientations, but they don't seem to work. Instead, just create the
+        " split ourselves and then pass "curwin" to the function call.
+        exe orientation .. " new"
+
+        let bufnr = term_start(
+            \ &shell,
+            \ #{
+                \ term_finish: 'close',
+                \ term_name: 'terman',
+                \ curwin: v:true,
+                \ hidden: 0
+            \ }
+        \ )
+
+        if bufnr != 0
+            " 0 will be returned if opening the "terminal" buffer failed,
+            " see ":h term_start()" for more informatio.
+            call self.add_terminal(bufnr, orientation, parent)
         endif
+    endfu
 
-        call terman#close(l:tabid)
-    endfunction
+    fu! s:TerminalSetObject.add_terminal(bufnr, orientation, parent) " {{{2
+        " Track a newly created terminal buffer.
 
-    " Create a new terminal, and store metadata pertaining to it
-    function! terman#create(mode)
-        let l:key = s:get_key()
-        let l:entries = s:get_entries(l:key)
-
-        if !exists('b:_terman_buffer') && exists('g:_terman_terminal_set') && !empty(l:entries)
-            echoerr 'ERROR: Can only open a new Terman buffer from an existing one'
-            return
-        endif
-
-        " The root node has no parent, an empty 'a:mode' denotes creation of the root node
-        let l:parent = empty(a:mode) ? '' : bufnr('%')
-        let l:term_pos = ''
-
-        if empty(a:mode)
-            " When starting fresh, open on the bottom
-            let l:term_pos = 'bot'
-        elseif a:mode == 'v'
-            " Open a new vertical split terminal, the arguments are already setup for
-            " horizontally splitting a new terminal buffer
-            let l:term_pos = 'vert'
-        endif
-
-        " Open the new split first
-        exe l:term_pos . ' new'
-
-        " Now start a terminal in the split
-        call term_start(
-            \ g:terman_shell,
-            \ {
-                \ 'exit_cb': function('terman#close_cb'),
-                \ 'term_kill': 'kill',
-                \ 'term_finish': 'close',
-                \ 'curwin': v:true
-            \ })
-
-        " Mark it as one of the set
-        let b:_terman_buffer = 1
-        let l:bufnr = bufnr('%')
-
-        let l:entry = {
-                \ 'mode': a:mode,
-                \ 'bufnr': l:bufnr,
-                \ 'parent': l:parent
+        " When a completely new terminal buffer is created, it
+        " will be created at the "s:ROOT" position in the current
+        " window. This means that it is the root of a new set.
+        "
+        " Otherwise, just store the passed orientation. This will
+        " be one of:
+        "   "s:VERTICAL" or "s:HORIZONTAL"
+        " which each denote a 'child' window rather than a root.
+        let term_info = #{
+            \ bufnr: a:bufnr,
+            \ parent: a:parent,
+            \ orientation: a:orientation
         \ }
 
-        " As intuitive as it is, an index of -1 means append to the list
-        call s:add_entry(l:key, -1, l:entry)
-    endfunction
+        call add(self.info, term_info)
+        let b:_terman_buf = v:true
 
-    " Remove a buffer from the terminal set
-    function! terman#close(...)
-        if !exists('b:_terman_buffer')
-            " Buffer not in the terminal set
-            return
-        endif
+        echom 'DEBUG TermanObject.add_terminal: added terminal'
+        echom self.info
+    endfu
 
-        if !exists('g:_terman_terminal_set') || empty(g:_terman_terminal_set)
-            return
-        endif
+    fu! s:TerminalSetObject.safe_to_hide() " {{{2
+        " Determine whether or not it is safe to hide all
+        " the buffers in the set.
+        "
+        " This function is necessary due to the fact that Vim
+        " won't allow the last buffer in a tab to be hidden.
 
-        if a:0
-            let l:key = a:1
-        else
-            let l:key = s:get_key()
-        endif
+        " Count how many of the buffers are terman buffers
+        let terman_count = 0
 
-        let l:entries = s:get_entries(l:key)
-
-        if empty(l:entries)
-            return
-        endif
-
-        let l:root = l:entries[0].bufnr
-
-        " The buffer being deleted
-        let l:bufnr = string(bufnr(''))
-
-        " Find the buffer we need to remove
-        let l:i = 0
-        let l:del_idx = -1
-        let l:del_entry = {}
-        let l:last_child_idx = -1
-        let l:last_child = {}
-
-        for l:entry in l:entries
-            if l:entry.bufnr == l:bufnr
-                let l:del_entry = l:entry
-                let l:del_idx = l:i
-            endif
-
-            if l:entry.parent == l:bufnr
-                let l:last_child = l:entry
-                let l:last_child_idx = l:i
-            endif
-
-            let l:i += 1
-        endfor
-
-        " Update all children of this node to have a new
-        " parent of the last child
-        if !empty(l:last_child)
-            for l:entry in l:entries
-                if l:entry.bufnr == l:last_child.bufnr
-                    " Only update those that aren't the new parent
-                    let l:last_child.parent = l:del_entry.parent
-                    continue
-                endif
-
-                if l:entry.parent == l:bufnr
-                    let l:entry.parent = l:last_child.bufnr
-                endif
-            endfor
-        endif
-
-        if !empty(l:last_child)
-            let l:insert_idx = -1
-
-            if l:bufnr == l:root
-                " The root has no parent
-                let l:last_child.parent = ''
-
-                " Put its last child as the new root
-                let l:insert_idx = 0
-            else
-                " Put it where its parent used to be
-                let l:insert_idx = l:del_idx
-
-                " Inherit creation mode from parent
-                let l:last_child.mode = l:del_entry.mode
-            endif
-        endif
-
-        " Remove the closed entry
-        call s:remove_list_entry(l:key, l:del_idx)
-
-        if !empty(l:last_child)
-            " Place its last child in its place
-            call s:add_entry(l:key, l:insert_idx, l:last_child)
-
-            " Remove its last child
-            call s:remove_list_entry(l:key, l:last_child_idx)
-        endif
-
-        let l:cur_entries = s:get_entries(l:key)
-
-        " See if this buffer was marked as fullscreen
-        let l:fs_buf = s:get_fullscreen_buf(l:key)
-
-        if l:fs_buf != -1
-            call s:set_fullscreen_buf(l:key, -1)
-        endif
-    endfunction
-
-    " Make a single terminal window within the set fullscreen
-    function! terman#fullscreen()
-        let l:key = s:get_key()
-        let l:fs_winid = win_getid()
-        let l:bufnr = bufnr()
-
-        if !s:has_fullscreen_buf(l:key)
-            " No window is currently full-screened
-            call s:hide_all(l:fs_winid)
-            call s:set_fullscreen_buf(l:key, bufnr('%'))
-        else
-            " Some window is already full-screened
-            let l:fs_buf = s:get_fullscreen_buf(l:key)
-
-            " Just incase
-            if l:fs_buf == -1
-                return
-            endif
-
-            call s:hide_all()
-
-            " A value of -1 denotes that nothing is full-screened
-            call s:set_fullscreen_buf(l:key, -1)
-
-            call s:open_all()
-        endif
-
-        if s:others_hidden(l:key)
-            " Re-hide non-terman buffers if they were hidden before
-            call s:hide_others()
-        endif
-
-        exe bufwinnr(l:bufnr) . 'wincmd w'
-        wincmd =
-    endfunction
-
-    " Mark a buffer in the terminal set
-    " TODO: Handle marking per tab
-    " TODO: Allow moving buffers between tabs
-    function! terman#mark()
-        if exists('b:_terman_buffer')
-            let g:_terman_marked = bufnr()
-
-            redraw | echo 'Yanked buffer ' . g:_terman_marked
-        endif
-    endfunction
-
-    " Paste the marked buffer
-    function! terman#paste()
-        if exists('g:_terman_marked') && exists('b:_terman_buffer')
-            let l:target_bufnr = bufnr('%')
-            let l:target_index = -1
-            let l:target_winnr = -1
-            let l:target_parent = -1
-
-            let l:marked_index = -1
-            let l:marked_winnr = -1
-            let l:marked_parent = -1
-
-            let l:index = 0
-            let l:key = s:get_key()
-            let l:entries = s:get_entries(l:key)
-            let l:found = 0
-
-            for l:entry in l:entries
-                if l:entry.bufnr == l:target_bufnr
-                    let l:found = 1
-                    let l:target_index = l:index
-                    let l:target_parent = l:entry.parent
-                    let l:target_winnr = bufwinnr(l:entry.bufnr)
-                endif
-
-                if l:entry.bufnr == g:_terman_marked
-                    let l:found = 1
-                    let l:marked_index = l:index
-                    let l:marked_parent = l:entry.parent
-                    let l:marked_winnr = bufwinnr(l:entry.bufnr)
-                endif
-
-                let l:index = l:index + 1
-            endfor
-
-            if !l:found
-                unlet g:_terman_marked
-                return
-            endif
-
-            if l:marked_index != -1 && l:target_index != -1 && l:target_parent != -1 && l:marked_winnr != -1 && l:marked_winnr != -1 && l:marked_parent != -1
-                " Update global state
-                call s:set_entry(l:key, l:marked_index, l:target_bufnr, 'bufnr')
-                call s:set_entry(l:key, l:target_index, g:_terman_marked, 'bufnr')
-
-                let l:mp = l:marked_parent
-                let l:tp = l:target_parent
-
-                if l:marked_parent == l:target_bufnr
-                    let l:mp = l:target_parent
-                    let l:tp = g:_terman_marked
-                elseif l:target_parent == g:_terman_marked
-                    let l:mp = l:target_bufnr
-                    let l:tp = l:marked_parent
-                endif
-
-                " If swapping with root, don't want to change parent
-                if !empty(l:mp)
-                    call s:set_entry(l:key, l:target_index, l:mp, 'parent')
-                endif
-
-                if !empty(l:tp)
-                    call s:set_entry(l:key, l:marked, l:tp, 'parent')
-                endif
-
-                let l:mpl = []
-                let l:tpl = []
-
-                " Swap parents of all other buffers as well
-                for l:entry in l:entries
-                    if l:entry.parent == l:target_bufnr
-                        call add(l:mpl, l:entry)
-                    endif
-
-                    if l:entry.parent == g:_terman_marked
-                        call add(l:tpl, l:entry)
-                    endif
-                endfor
-
-                for l:entry in l:mpl
-                    let l:entry.parent = g:_terman_marked
-                endfor
-
-                for l:entry in l:tpl
-                    let l:entry.parent = l:target_bufnr
-                endfor
-
-                " Perform visual swap
-                exe l:marked_winnr . 'wincmd w'
-                exe 'hide buf' . l:target_bufnr
-
-                exe l:target_winnr . 'wincmd w'
-                exe 'hide buf' . g:_terman_marked
-
-            endif
-
-            unlet g:_terman_marked
-        else
-            echoerr 'ERROR: No marked window'
-        endif
-    endfunction
-
-    " Get rid of a tab and it's terminal set when the tab is closed.
-    function! terman#tab_closed()
-        let l:known_tabs = {}
-        for l:tabnr in range(1, tabpagenr('$'))
-            let l:known_tabs[l:tabnr] = 1
-        endfor
-
-        for [l:tabid, l:bufs] in items(g:_terman_terminal_set)
-            let l:tabnr = s:get_tabnr(l:tabid)
-
-            if !has_key(l:known_tabs, l:tabnr)
-                " Wipeout the terman buffers as they are attached to the closed tab
-                if g:terman_per_tab
-                    for l:bufinfo in l:bufs
-                        let l:bufnr = l:bufinfo.bufnr
-
-                        try
-                            exe 'bwipeout' . bufnr(l:bufnr)
-                        catch | | endtry
-                    endfor
-
-                    unlet g:_terman_terminal_set[l:tabid]
-                endif
+        "                               ┌ this is a Vim-defined tab number
+        "                               │
+        for buf in tabpagebuflist(self.get_tabnr())
+            if !empty(getbufvar(buf, '_terman_buf'))
+                let terman_count += 1
             endif
         endfor
-    endfunction
 
-    " Toggle a popup terminal window
-    function! terman#float()
-        " Check if it exists already
-        let l:bufnr = bufnr(g:_terman_float_name)
+        echom 'DEBUG TermanObject.safe_to_hide: count=' .. terman_count
 
-        if l:bufnr == -1 || !bufloaded(l:bufnr)
-            " It doesn't exist, create it
-            let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
-        else
-            if exists('g:_terman_float_winid')
-                " Created, visible
-                try
-                    call popup_close(g:_terman_float_winid)
-                catch
-                    hide
-                endtry
+        return terman_count != 0
+    endfu
 
-                unlet g:_terman_float_winid
-            else
-                " Created, not visible
-                let l:opts = g:terman_popup_opts
-                let l:opts.bufnr = l:bufnr
+    fu! s:TerminalSetObject.hide(...) " {{{2
+        " Hide this terminal set.
+        "
+        " If arguments are passed, window IDs in that list
+        " will be skipped.
+        "
+        " NOTE: This function will assume that checks have already
+        "       been made to it is visible or not.
+        let skip = a:0 ? a:1 : []
 
-                let g:_terman_float_winid = s:create_popup(g:terman_popup_opts)
-            endif
-        endif
-    endfunction
+        echom 'DEBUG TermanObject.hide: called'
 
-    " Toggle the terminal set being fullscreen in the current window
-    " This function is for public use to denote a change of state, the private
-    " version is used at various places in this script where we don't want to
-    " toggle the state
-    function! terman#hide_others()
-        let l:key = s:get_key()
+        call self.hide_helper(skip)
+    endfu
 
-        call s:toggle_hide_others(l:key)
-        call s:hide_others()
+    fu! s:TerminalSetObject.hide_helper(winids_to_skip) " {{{2
+        " Iterate over and hide all buffers within this terminal set,
+        " those residing in a window passed in the list argument will
+        " not be hidden.
+        let safe = self.safe_to_hide()
 
-        wincmd =
-    endfunction
+        echom 'DEBUG TermanObject.hide_helper: safe=' .. safe
 
-" }}}
+        " Whether or not the new split was already created to handle
+        " errors when trying to hide the last buffer in a tab
+        let created = v:false
 
-" --- Private Functions {{{
+        for buf_info in self.info
+            let winids = win_findbuf(buf_info.bufnr)
+            "            ├─────────────────────────┘
+            "            │
+            "            │ will be a list of all windows where the buffer is found,
+            "            └ which in most cases should just be a single entry
 
-    " Get the accessor key to use based on global settings
-    function! s:get_key()
-        if !g:terman_per_tab
-            return g:_terman_key
-        else
-            if !exists('t:_terman_tab_id')
-                let t:_terman_tab_id = g:_terman_tab_idx
-                let g:_terman_tab_idx = g:_terman_tab_idx + 1
-            endif
-
-            return t:_terman_tab_id
-        endif
-    endfunction
-
-    " Hide all currently visible buffers of the terminal set
-    function! s:hide_all(...)
-        let g:_terman_skip_au = 1
-
-        if a:0
-            let l:winids_to_skip = a:000
-        else
-            let l:winids_to_skip = []
-        endif
-
-        call s:hide_all_helper(l:winids_to_skip)
-
-        unlet g:_terman_skip_au
-    endfunction
-
-    " Functionality for hiding buffers
-    function! s:hide_all_helper(winids_to_skip)
-        let l:key = s:get_key()
-        let l:made_new_already = 0
-        let l:entries = s:get_entries(l:key)
-
-        " Want to get the count initially, as it will change as windows
-        " are hidden
-        let l:otbl = s:only_terman_windows_left()
-
-        for l:entry in l:entries
-            let l:winids = win_findbuf(l:entry.bufnr)
-
-            for l:winid in l:winids
+            for winid in winids
                 " Used when fullscreening a buffer, hide all except the 'fullscreened' one
                 if len(a:winids_to_skip) && index(a:winids_to_skip, l:winid) >= 0
                     continue
                 endif
 
                 " Go to the window before checking
-                call win_gotoid(l:winid)
+                call win_gotoid(winid)
 
-                if l:otbl && !l:made_new_already
+                " When trying to hide buffers, errors will be thrown
+                " if hiding to hide the last visible buffer in a particular
+                " tab. In the case that there are only "terman" buffers left
+                " in a particular tab, we will need to make a new split so
+                " that they can all be hidden.
+                if !safe && !created
                     " Create a new split to prevent errors
                     top new
 
-                    " Focus changes due to above, now go back
-                    call win_gotoid(l:winid)
+                    " When we run the above command, the focus will change to
+                    " the newly created split, so at this point the focus needs
+                    " to go back the buffer that is being hidden
+                    call win_gotoid(winid)
 
                     " Only do this once
-                    let l:made_new_already = 1
+                    let created = v:true
                 endif
 
                 hide
             endfor
         endfor
-    endfunction
+    endfu
 
-    " Restore the layout of the terminal set and make them all visible
-    function! s:open_all()
-        let l:key = s:get_key()
-        let l:entries = s:get_entries(l:key)
-        let g:_terman_skip_au = 1
+    fu! s:TerminalSetObject.show() " {{{2
+        " Show this terminal set.
+        "
+        " This method can be a bit tricky because of the way we need
+        " to re-open the splits in the same order that they were
+        " originally opened.
 
-        let l:fs_buf = s:get_fullscreen_buf(l:key)
-
-        if l:fs_buf != -1
-            let l:open_buf = l:fs_buf
+        " If there is a maximized buffer, that is the only
+        " one that we need to show.
+        if self.maximized isnot# v:none
+            let root = self.maximized
         else
-            let l:open_buf = l:entries[0].bufnr
+            " Indexing without checking would normally be bad, but at
+            " this point "self.is_empty()" has already been called by
+            " the using "Terman" instance
+            let root = self.info[0].bufnr
         endif
 
-        " Open the proper buffer
-        exe 'bot sb ' . l:open_buf
+        echom 'DEBUG TermanObject.show: root=' .. root
 
-        " Only open the fullscreened buffer
-        if l:fs_buf != -1
-            return
+        " Open the root buffer in the configured position
+        silent exe s:ROOT .. ' sbuffer ' .. root
+
+        " The buffer that has already been opened needs to be skipped,
+        " the other option is to use a while loop but then that leaves
+        " us having to keep track of additional variables as we iterate
+        let skipped = v:false
+
+        for buf_info in self.info
+            if !skipped
+                " Need to skip the "root" that has already been opened
+                let skipped = v:true
+
+                continue
+            endif
+
+            " Go to the parent and open the child in the right
+            " orientation according to how it was setup
+            silent exe bufwinnr(buf_info.parent) .. 'wincmd w'
+            silent exe buf_info.orientation .. ' sbuffer ' .. buf_info.bufnr
+        endfor
+    endfu
+
+" Terman {{{1
+    " Global {{{2
+    "
+    " This is necessary so that the 'type' is defined
+    let s:TermanObject = {}
+
+    fu! s:TermanObject.new() " {{{2
+        " Create a new "Terman" object and initialize
+        " it's instance variables.
+        let new = copy(self)
+        let new.set = {}
+
+        return new
+    endfu
+
+    fu! s:TermanObject.get_set(key) " {{{2
+        " Get the terminal set for the passed key.
+        "
+        " When a function is decorated with the 'dict'
+        " keyword, it essentially acts as part of a class
+        " in that an object can have an first-class function
+        " object that can be called like:
+        "   s:object.function()
+        "
+        " Use ":h get()" to allow a default to be returned
+        if has_key(self.set, a:key)
+            return self.set[a:key]
+        else
+            " Pass the key as the tabid so that the terminal set is
+            " aware of what tab it is associated with.
+            let self.set[a:key] = s:TerminalSetObject.new(a:key)
+
+            return self.set[a:key]
         endif
+    endfu
 
-        " Start at index 1, and open everything else
-        let l:i = 1
+    fu! s:TermanObject.toggle(key) " {{{2
+        " Toggle the visibility of the terminal set defined
+        " by the passed key.
+        "
+        " Hide it if it is visble (or visible in another tab
+        " based on settings), or show it by the same metric.
+        let term_set = self.get_set(a:key)
 
-        while l:i < len(l:entries)
-            let l:entry = l:entries[l:i]
-            let l:winnr = bufwinnr(l:entry.parent)
-
-            if l:entry.mode == 'v'
-                let l:modifier = 'vert '
+        if term_set.is_empty()
+            " Passing no arguments will result in the "terminal"
+            " buffer to be created at the bottom of the screen
+            call term_set.create_terminal()
+        else
+            if term_set.is_visible()
+                echom 'DEBUG TermanObject.toggle: visible, hiding'
+                call term_set.hide()
             else
-                let l:modifier = ''
+                echom 'DEBUG TermanObject.toggle: not visible, showing'
+                call term_set.show()
             endif
+        endif
+    endfu
 
-            " Go to the parent and open a new window accordingly
-            exe l:winnr . 'wincmd w'
-            exe l:modifier . 'sb ' . l:entry.bufnr
+    fu! s:TermanObject.create_terminal_in_set(key, orientation) " {{{2
+        " Direct to the correcet "TerminalSet" and have it create a new
+        " "terminal" buffer in the correct orientation
+        let term_set = self.get_set(a:key)
 
-            let l:i += 1
-        endwhile
+        if term_set.is_empty()
+            echom 'DEBUG TermanObject.create_terminal_in_set: empty'
 
-        unlet g:_terman_skip_au
-    endfunction
-
-    " Get all of the entries for a particular tab
-    function! s:get_entries(key)
-        return get(g:_terman_terminal_set, a:key, [])
-    endfunction
-
-    " Add an entry to th eterminal buffer set list
-    function! s:add_entry(key, index, value)
-        let l:entries = get(g:_terman_terminal_set, a:key, [])
-
-        if a:index == -1
-            call add(l:entries, a:value)
+            " Nothing exists yet, so call the following function without
+            " arguments to ensure that a new buffer is created.
+            call term_set.create_terminal()
         else
-            call insert(l:entries, a:value, a:index)
+            echom 'DEBUG TermanObject.create_terminal_in_set: not empty, orientation=' .. a:orientation
+
+            " If we pass arguments, the orientation will be used. At this
+            " point we know the terminal set is _not_ empty so it is safe
+            " to add the orientation here.
+            call term_set.create_terminal(a:orientation)
+        endif
+    endfu
+
+    " Instance {{{2
+    let s:terman = s:TermanObject.new()
+
+
+fu! s:get_key() " {{{1
+    " Get the accessor key to use based on global settings
+    "
+    " This is the key that will be used within the global
+    " "s:terman" object's "set" variable to find the set of buffers
+    " that are being dealt with. This changes based on the
+    " current tab, and if terminal buffer sets are distinct
+    " between tabs or not, etc.
+    if get(g:, 'terman_per_tab', 1)
+        return g:_terman_key
+    else
+        if !exists('t:_terman_tab_id')
+            " Vim assigns each tab it's own tab number, but this
+            " is more-so an index than an identifier for a tab.
+            " For instance, if two tabs are open:
+            "   a, b
+            " tab 'a' will have number 1, and tab 'b' will have number
+            " 2, as expected. But if we are focused on tab 'a' and open
+            " a new tab:
+            " a, c, b
+            " then tab 'a' will be number 1, and tab 'c' will be number 2.
+            " Because of this we can't index based on ":h tabpagenr()", so
+            " just use/update our own sequence.
+            let t:_terman_tab_id = g:_terman_tab_id
+            let g:_terman_tab_id += 1
         endif
 
-        let g:_terman_terminal_set[a:key] = l:entries
-    endfunction
+        return t:_terman_tab_id
+    endif
+endfu
 
-    " Set the value of an entry in the terminal buffer set list
-    function! s:set_entry(key, index, value, attribute)
-        let l:entries = get(g:_terman_terminal_set, a:key, [])
+fu! s:get_tabnr(tabid) " {{{1
+    " Get the Vim-defined tab number from a given
+    " terman-defined tab 'ID'
+    for tabnr in range(1, tabpagenr('$'))
+        let tabid = gettabvar(tabnr, '_terman_tab_id', v:none)
 
-        if empty(a:attribute)
-            let l:entries[a:index] = a:value
-        else
-            exe 'let l:entries[a:index].' . a:attribute . ' = a:value'
-        endif
-
-        let g:_terman_terminal_set[a:key] = l:entries
-    endfunction
-
-    " Remove an entry from a terminal set buffer list
-    function! s:remove_list_entry(key, index)
-        if has_key(g:_terman_terminal_set, a:key) && !empty(g:_terman_terminal_set[a:key])
-            unlet g:_terman_terminal_set[a:key][a:index]
-        endif
-
-        if empty(g:_terman_terminal_set[a:key])
-            unlet g:_terman_terminal_set[a:key]
-        endif
-    endfunction
-
-    " Determine if the terminal set is visible
-    function! s:is_visible(key)
-        " The tab that the set is visible on
-        " Argument can be anything
-        let l:is_visible = s:get_set_tabid(v:true)
-
-        if l:is_visible == -1
-            return 0
-        endif
-
-        return 1
-    endfunction
-
-    " Determine if any buffer is currently fullscreened
-    function! s:has_fullscreen_buf(key)
-        if !has_key(g:_terman_fullscreen_buf, a:key)
-            let g:_terman_fullscreen_buf[a:key] = -1
-        endif
-
-        if g:_terman_fullscreen_buf[a:key] == -1
-            return 0
-        endif
-
-        return 1
-    endfunction
-
-    " Get the buffer which is set as fullscreen
-    function! s:get_fullscreen_buf(key)
-        if exists('g:_terman_fullscreen_buf') && has_key(g:_terman_fullscreen_buf, a:key) && g:_terman_fullscreen_buf[a:key] != -1
-            return g:_terman_fullscreen_buf[a:key]
-        endif
-
-        return -1
-    endfunction
-
-    " Set a single buffer within the terminal set as fullscreen
-    function! s:set_fullscreen_buf(key, bufnr)
-        let g:_terman_fullscreen_buf[a:key] = a:bufnr
-    endfunction
-
-    " Try to focus the passed window
-    function! s:focus_win(key, winid)
-        try
-            call win_gotoid(a:winid)
-        catch | | endtry
-    endfunction
-
-    " Focus the window containing the passed buffer
-    function! s:focus_buf(key)
-        if s:is_visible(a:key) && has_key(g:_terman_focused_buf, a:key)
-            try
-                exe bufwinnr(g:_terman_focused_buf[a:key]) . 'wincmd w'
-            catch | | endtry
-        endif
-    endfunction
-
-    " Track the focus of buffers within the terminal set for use when toggling
-    function! s:set_focused(key, bufnr)
-        " Skip changing focus when we are opening all terminal windows as the result of a toggle
-        if !exists('g:_terman_skip_au') && exists('b:_terman_buffer')
-            let g:_terman_focused_buf[a:key] = a:bufnr
-        endif
-    endfunction
-
-    " Get the tab ID that a set is visible on
-    function! s:get_set_tabid(...)
-        if a:0
-            " If arguments were passed, return -1
-            " as a sign that nothing was found
-            let l:tabnr = -1
-        else
-            let l:tabnr = tabpagenr()
-        endif
-
-        let l:key = s:get_key()
-
-        if exists('g:_terman_key')
-            let l:entries = s:get_entries(l:key)
-            let l:winid = win_getid()
-
-            try
-                if len(l:entries)
-                    let l:bufnr = l:entries[0].bufnr
-                    let l:winids = win_findbuf(l:bufnr)
-
-                    if len(l:winids)
-                        call win_gotoid(l:winids[0])
-                        let l:tabnr = tabpagenr()
-                    endif
-                endif
-            finally
-                call win_gotoid(l:winid)
-            endtry
-        endif
-
-        if l:tabnr == -1
+        if tabid isnot# v:none && tabid == a:tabid
             return l:tabnr
-        else
-            return s:get_tabid(l:tabnr)
         endif
-    endfunction
+    endfor
 
-    function! s:visible_on_current_tab()
-        let l:key = s:get_key()
-        let l:term_bufs = s:get_entries(l:key)
-        let l:tab_bufs = tabpagebuflist()
+    return v:none
+endfunction
 
-        for l:term_buf in l:term_bufs
-            if index(l:tab_bufs, l:term_buf) >= 0
-                return 1
-            endif
-        endfor
+fu! terman#toggle() " {{{1
+    " Public interface to create a new terminal buffer for
+    " the current terminal set
+    let key = s:get_key()
 
-        return 0
-    endfunction
+    call s:terman.toggle(key)
+endfu
 
-    " Determine if there are only terminal buffers left in the current tab
-    function! s:only_terman_windows_left()
-        let l:key = s:get_key()
+fu! terman#new(vertical) " {{{1
+    " Public interface to toggle a terminal set, simple
+    " call the Terman object and let it do the work
+    let key = s:get_key()
+    let orientation = a:vertical ? s:VERTICAL : s:HORIZONTAL
+    echom "DEBUG terman#new: orientation=" .. orientation
 
-        let l:fs_buf = s:get_fullscreen_buf(l:key)
-        let l:windows_in_tab = tabpagewinnr(v:lnum, '$')
-
-        " There is a fullscreened buffer, so we only expect a single terman window
-        let l:num_entries = l:fs_buf != -1 ? 1 : len(s:get_entries(l:key))
-
-        if l:num_entries == l:windows_in_tab
-            return 1
-        endif
-
-        return 0
-    endfunction
-
-    " Helper for s:popup, based on fzf.vim
-    function! s:create_popup(opts) abort
-        let width = min([max([0, float2nr(&columns * a:opts.width)]), &columns])
-        let height = min([max([0, float2nr(&lines * a:opts.height)]), &lines - has('nvim')])
-        let row = float2nr(get(a:opts, 'yoffset', 0.5) * (&lines - height))
-        let col = float2nr(get(a:opts, 'xoffset', 0.5) * (&columns - width))
-
-        " Managing the differences
-        let row = min([max([0, row]), &lines - has('nvim') - height])
-        let col = min([max([0, col]), &columns - width])
-        let row += !has('nvim')
-        let col += !has('nvim')
-
-        if !has_key(a:opts, 'bufnr')
-            let l:bufnr = term_start(
-                \ g:terman_shell,
-                \ #{
-                    \ term_name: g:_terman_float_name,
-                    \ hidden: 1,
-                    \ term_finish: 'close'
-            \ })
-        else
-            let l:bufnr = a:opts.bufnr
-        endif
-
-        return popup_create(l:bufnr, {
-            \ 'line': row,
-            \ 'col': col,
-            \ 'minwidth': width,
-            \ 'minheight': height,
-            \ 'maxwidth': width,
-            \ 'maxheight': height,
-            \ 'zindex': 50,
-            \ 'border': [1,1,1,1],
-            \ 'borderchars': ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
-            \ 'borderhighlight': [a:opts.highlight],
-        \ })
-    endfunction
-
-    " Get the _terman_tab_id from a tabnr, default to current tab
-    function! s:get_tabid(...)
-        if a:0
-            return gettabvar(a:1, '_terman_tab_id', -1)
-        else
-            return t:_terman_tab_id
-        endif
-    endfunction
-
-    " Get the tab number from a _terman_tab_id
-    function! s:get_tabnr(tabid)
-        for l:tabnr in range(1, tabpagenr('$'))
-            let l:tabid = gettabvar(l:tabnr, '_terman_tab_id', -1)
-
-            if l:tabid != -1
-                if l:tabid == a:tabid
-                    return l:tabnr
-                endif
-            endif
-        endfor
-
-        return -1
-    endfunction
-
-    " Toggle the state of hide others
-    function! s:toggle_hide_others(key)
-        if !has_key(g:_terman_hide_others_state, a:key)
-            " Can't un-hide things if they haven't been hidden yet
-            let g:_terman_hide_others_state[a:key] = 1
-
-            return
-        endif
-
-        if g:_terman_hide_others_state[a:key] == 1
-            let g:_terman_hide_others_state[a:key] = 0
-        else
-            let g:_terman_hide_others_state[a:key] = 1
-        endif
-    endfunction
-
-    " Private function to hide all non-terman buffers
-    function! s:hide_others()
-        for l:buf in tabpagebuflist()
-            if !getbufvar(l:buf, '_terman_buffer')
-                exe bufwinnr(l:buf) . 'wincmd w'
-
-                hide
-            endif
-        endfor
-    endfunction
-
-    " Get the state of whether or not non-terman buffers are hidden
-    function! s:others_hidden(key)
-        if !has_key(g:_terman_hide_others_state, a:key)
-            let g:_terman_hide_others_state[a:key] = 0
-        endif
-
-        return g:_terman_hide_others_state[a:key]
-    endfunction
-
-" }}}
-
-" --- Autocommands {{{
-
-    augroup terman
-        au!
-
-        " Track which buffer is focused for a more natural experience when toggling
-        au BufEnter * call s:set_focused(s:get_key(), bufnr('%'))
-        au TabClosed * call terman#tab_closed()
-    augroup END
-
-" }}}
+    call s:terman.create_terminal_in_set(key, orientation)
+endfu
