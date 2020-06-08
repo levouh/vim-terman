@@ -1,5 +1,6 @@
 " Variables {{{1
 
+const s:KEY = "terman_key"
 const s:ROOT = "bot"
 const s:VERTICAL = "vert"
 const s:HORIZONTAL = ""
@@ -10,7 +11,7 @@ const s:HORIZONTAL = ""
     " This is necessary so that the 'type' is defined
     let s:TerminalSetObject = {}
 
-    fu! s:TerminalSetObject.new(id) " {{{2
+    fu! s:TerminalSetObject.new(key) " {{{2
         " Create a new "TermanalSet" object and initialize
         " it's instance variables.
         let new = copy(self)
@@ -18,36 +19,29 @@ const s:HORIZONTAL = ""
         let new.info_dict = {}
         let new.maximized = v:none
 
-        " The "ID" for any terminal set is the tab that it is associated
+        " The "key" for any terminal set is the tab that it is associated
         " with. Based on settings, it could be associated with a single
-        " tab or multiple, so access to this variable should always be
-        " done through the function "get_id()".
-        let new.id = a:id
+        " tab or multiple.
+        "
+        " Because we are keying into a dictionary, in the case that the
+        " "g:terman_per_tab" setting is off, the key returned will always
+        " be the static "s:KEY".
+        let new.key = a:key
 
         return new
     endfu
 
-    fu! s:TerminalSetObject.get_id() " {{{2
-        " Determine whether or not this terminal set has a buffer that
-        " has been explicitly maximized by the user.
-        if get(g:, 'terman_per_tab', 1)
-            return self.id
-        else
-            return tabpagenr()
-        endif
-    endfu
-
     fu! s:TerminalSetObject.get_tabnr() " {{{2
         if get(g:, 'terman_per_tab', 1)
-            " In the case that this option is set, the value of "self.get_id()"
+            " In the case that this option is set, the value of "self.key"
             " will be a terman-defined tab 'ID', so we need to get the
             " Vim-defined tab number from it
-            return s:get_tabnr(self.get_id())
+            return s:get_tabnr(self.key)
         endif
 
-        " In the opposite case, the value of "self.get_id()" is already
-        " a Vim-defined tab number
-        return self.get_id()
+        " In the opposite case the setting is off, so we just want the
+        " current tab number.
+        return tabpagenr()
     endfu
 
     fu! s:TerminalSetObject.is_empty() " {{{2
@@ -101,6 +95,129 @@ const s:HORIZONTAL = ""
         endif
     endfu
 
+    fu! s:TerminalSetObject.close_terminal(bufnr)dict " {{{2
+        " This function is called from a callback setup when a terminal
+        " buffer is created.
+        "
+        " See the "TerminalSetObject.create_terminal" for more details.
+        "
+        " A local alias.
+        let bufnr = a:bufnr
+
+        " Get the information about the buffer being closed
+        if !has_key(self.info_dict, bufnr)
+            " The buffer isn't tracked but somehow this callback was
+            " called, not sure why this would happen but we need to quit early
+            return
+        endif
+
+        " It exists, grab the information
+        "
+        " NOTE: This is a dictionary.
+        let deleting = self.info_dict[bufnr]
+
+        " The last child will replace the buffer being deleted, so get the
+        " last child entry if it exists, else assign it "v:none".
+        "
+        " NOTE: This is a dictionary.
+        let last_child = len(deleting.children) ? deleting.children[-1] : v:none
+
+        " When a buffer is to be deleted from the list, all buffers
+        " who have this buffer as a parent will need to have their
+        " parent updated.
+        "
+        " In order to find the new parent, we need to find the "last child"
+        " of the buffer being closed. When going through a few examples,
+        " it becomes apparent that this is the case.
+        "
+        " Keep track of the index as we iterate the list, this makes
+        " removing items later easier
+        let idx = 0
+
+        "        ┌ the buffer being removed
+        "        │
+        let [deleting_idx, replacement_idx] = [v:none, v:none]
+        "                   │
+        "                   └ the buffer replaceing the one being removed
+
+        " Update the parents of the replacement buffer, and any buffer that
+        " had the buffer being deleted as a parent.
+        "
+        " Additionally, track the index of the buffer being deleted and it's
+        " replacement to avoid extra loop iterations later.
+        for buf_info in self.info
+            if buf_info.bufnr == deleting.bufnr
+                " This is the index of the buffer that is being deleted
+                let deleting_idx = idx
+            endif
+
+            "  ┌ the buffer may have no children, so there is nothing
+            "  │ to replace
+            "  │
+            "  ├──────────────────────┐
+            if last_child isnot# v:none
+                if buf_info.bufnr == last_child.bufnr
+                    " Inherit the parent of the buffer being deleted, as this
+                    " buffer is effectively replacing it
+                    let self.info_dict[last_child.bufnr].parent = deleting.parent
+
+                    let replacement_idx = idx
+                elseif buf_info.parent == deleting.bufnr
+                    " Update any buffer that had a parent of the buffer being deleted
+                    " to now have a parent of the buffer replacing it
+                    let buf_info.parent = last_child.bufnr
+                endif
+            endif
+
+            let idx += 1
+        endfor
+
+        " TODO: Are all of these done?
+        "   - Looping over "deleting.children" does not provide
+        "     an easy way to determine the index of the entry that
+        "     is being deleted.
+        "   - Grab the 'last child' by looking at the length of
+        "     "deleting.children", otherwise set it to "v:none".
+        "   - Loop over "self.info" instead, and look for the number
+        "     of the buffer being deleted.
+        return
+
+        "  ┌ This case is important beceause we could be deleting a buffer
+        "  │ that has no children, so there is nothing to update
+        "  │
+        "  ├───────────────────────────────────────────────────────────┐
+        if replacement_bufnr isnot# v:none && bufexists(replacement_bufnr)
+            if replacement_bufnr == root.bufnr
+                " This is the new root buffer, as the root is being replaced
+                let self.info_dict[replacement_bufnr].orientation = s:ROOT
+            else
+                " Otherwise inherit the orientation from the buffer being
+                " deleted
+                let self.info_dict[replacement_bufnr].orientation = deleting.orientation
+            endif
+
+            " Replace the buffer being deleted with the one replacing it
+            "
+            "                                      ┌ key into dictionary
+            "                                      │
+            let self.info[deleting_idx] = self.info_dict[replacement_bufnr]
+            "         │
+            "         └ index into a list
+
+            " Remove from the dictionary as well
+            unlet self.info_dict[deleting.bufnr]
+
+            " At this point, the replacement has already been moved to where
+            " the deleted buffer was, so there are two copies of it in the list.
+            "
+            " The one that should be deleted is the 'older' one at the replacement
+            " index
+            unlet self.info[replacement_idx]
+        endif
+
+        " TODO: Need a timer here maybe to remove this "TerminalSetObject"?
+    endfu
+
     fu! s:TerminalSetObject.create_terminal(...) " {{{2
         " Create a new terminal buffer based on the passed arguments.
         "
@@ -150,10 +267,17 @@ const s:HORIZONTAL = ""
         " split ourselves and then pass "curwin" to the function call.
         exe orientation .. " new"
 
+        " Notice that the callback is not part of this "TerminalSet" object,
+        " because Vim will not handle these "dict" function calls correctly.
+        "
+        " To get around this, we will call a generic script-local function
+        " as part of the callback, and then we will access the "b:_terman_buf"
+        " variable to determine the "self.id" field to get the correct
+        " "TerminalSet" object and call it accordingly.
         let bufnr = term_start(
             \ &shell,
             \ #{
-                \ exit_cb: function('self.close_terminal'),
+                \ exit_cb: function('s:terminal_closed_callback'),
                 \ term_finish: 'close',
                 \ term_name: 'terman',
                 \ curwin: v:true,
@@ -166,118 +290,6 @@ const s:HORIZONTAL = ""
             " see ":h term_start()" for more informatio.
             call self.add_terminal(bufnr, orientation, parent)
         endif
-    endfu
-
-    fu! s:TerminalSetObject.close_terminal(...) " {{{2
-        " Callback setup to be called when a terman-buffer is closed.
-        "
-        " Arguments to this function are the job, and then the exit status.
-
-        " The buffer being deleted
-        let bufnr = bufnr()
-
-        if !empty(getbufvar(bufnr, '_terman_buf'))
-            " Buffer not in the terminal set
-            return
-        endif
-
-        " Get the information about the buffer being closed
-        if !has_key(self.info_dict, bufnr)
-            " The buffer isn't tracked but somehow this callback was
-            " called, not sure why this would happen but we need to quit early
-            return
-        endif
-
-        " It exists, grab the information
-        let deleting = self.info_dict[bufnr]
-
-        " When a buffer is to be deleted from the list, all buffers
-        " who have this buffer as a parent will need to have their
-        " parent updated.
-        "
-        " In order to find the new parent, we need to find the "last child"
-        " of the buffer being closed. When going through a few examples,
-        " it becomes apparent that this is the case.
-        "
-        " NOTE: This is a buffer number
-        let replacement_bufnr = self.info_dict[bufnr].last_child
-
-        " Keep track of the index as we iterate the list, this makes
-        " removing items later easier
-        let idx = 0
-
-        "        ┌ the buffer being removed
-        "        │
-        let [deleting_idx, replacement_idx] = [v:none, v:none]
-        "                   │
-        "                   └ the buffer replaceing the one being removed
-
-        " Update the parents of the replacement buffer, and any buffer that
-        " had the buffer being deleted as a parent.
-        "
-        " Additionally, track the index of the buffer being deleted and it's
-        " replacement to avoid extra loop iterations later.
-        for buf_info in self.info
-            if buf_info.bufnr == deleting.bufnr
-                " This is the index of the buffer that is being deleted
-                let deleting_idx = idx
-            endif
-
-            "  ┌ This case is important beceause we could be deleting a buffer
-            "  │ that has no children, so there is nothing to update
-            "  │
-            "  ├───────────────────────────────────────────────────────────┐
-            if replacement_bufnr isnot# v:none && bufexists(replacement_bufnr)
-                if buf_info.bufnr == replacement_bufnr
-                    " Inherit the parent of the buffer being deleted, as this
-                    " buffer is effectively replacing it
-                    let self.info_dict[replacement_bufnr].parent = deleting.parent
-
-                    let replacement_idx = idx
-                elseif l:entry.parent == deleting.bufnr
-                    " Update any buffer that had a parent of the buffer being deleted
-                    " to now have a parent of the buffer replacing it
-                    let buf_info.parent = replacement_bufnr
-                endif
-            endif
-
-            let idx += 1
-        endfor
-
-        "  ┌ This case is important beceause we could be deleting a buffer
-        "  │ that has no children, so there is nothing to update
-        "  │
-        "  ├───────────────────────────────────────────────────────────┐
-        if replacement_bufnr isnot# v:none && bufexists(replacement_bufnr)
-            if replacement_bufnr == root.bufnr
-                " This is the new root buffer, as the root is being replaced
-                let self.info_dict[replacement_bufnr].orientation = s:ROOT
-            else
-                " Otherwise inherit the orientation from the buffer being
-                " deleted
-                let self.info_dict[replacement_bufnr].orientation = deleting.orientation
-            endif
-
-            " Replace the buffer being deleted with the one replacing it
-            "
-            "                                      ┌ key into dictionary
-            "                                      │
-            let self.info[deleting_idx] = self.info_dict[replacement_bufnr]
-            "         │
-            "         └ index into a list
-
-            " Remove from the dictionary as well
-            unlet self.info_dict[deleting.bufnr]
-
-            " At this point, the replacement has already been moved to where
-            " the deleted buffer was, so there are two copies of it in the list.
-            "
-            " The one that should be deleted is the 'older' one at the replacement
-            " index
-            unlet self.info[replacement_idx]
-        endif
-
-        " TODO: Need a timer here maybe to remove this "TerminalSetObject"?
     endfu
 
     fu! s:TerminalSetObject.add_terminal(bufnr, orientation, parent) " {{{2
@@ -295,14 +307,15 @@ const s:HORIZONTAL = ""
             \ bufnr: a:bufnr,
             \ parent: a:parent,
             \ orientation: a:orientation,
-            \ last_child = v:none
+            \ children: []
         \ }
 
-        if a:orientation != s:ROOT
-            " When closing buffers this information is important, keep track of it here.
+        if a:parent isnot# v:none
+            " Keep track of the parent/child relationship in the parent as well.
             "
-            " See "self.close_terminal" for the specific use case.
-            let self.info_dict[a:parent].last_child = bufnr
+            " This is important information to track for when buffers are being
+            " deleted via the callback setup in the call to ":h term_start()"
+            call self.add_child(a:parent, a:bufnr)
         endif
 
         " Store it in a list for easy iteration, this also helps when
@@ -317,10 +330,20 @@ const s:HORIZONTAL = ""
         " Mark the buffer as being a "terman buffer", as a lot of the
         " operations performed should not be performed on non-terman
         " buffers
-        let b:_terman_buf = v:true
+        let b:_terman_buf = self.key
 
         echom 'DEBUG TermanObject.add_terminal: added terminal'
         echom self.info
+    endfu
+
+    fu! s:TerminalSetObject.add_child(parent, child) " {{{2
+        " Track the child of a buffer.
+        "
+        " Children are tracked in order, and each buffer will
+        " use this information to keep track of its own children.
+        call add(self.info_dict[a:parent].children, a:child)
+
+        echom 'DEBUG TermanObject.add_child: added child, parent=' .. a:parent .. ', child=' .. a:child
     endfu
 
     fu! s:TerminalSetObject.safe_to_hide() " {{{2
@@ -548,7 +571,7 @@ fu! s:get_key() " {{{1
     " current tab, and if terminal buffer sets are distinct
     " between tabs or not, etc.
     if get(g:, 'terman_per_tab', 1)
-        return g:_terman_key
+        return s:KEY
     else
         if !exists('t:_terman_tab_id')
             " Vim assigns each tab it's own tab number, but this
@@ -558,7 +581,7 @@ fu! s:get_key() " {{{1
             " tab 'a' will have number 1, and tab 'b' will have number
             " 2, as expected. But if we are focused on tab 'a' and open
             " a new tab:
-            " a, c, b
+            "   a, c, b
             " then tab 'a' will be number 1, and tab 'c' will be number 2.
             " Because of this we can't index based on ":h tabpagenr()", so
             " just use/update our own sequence.
@@ -584,6 +607,24 @@ fu! s:get_tabnr(tabid) " {{{1
     return v:none
 endfunction
 
+fu! s:terminal_closed_callback(...) " {{{1
+    " This function is called as a callback whenever
+    " a terman buffer is closed. For more details on why
+    " this is used, meaning not part of the "TerminalSet"
+    " object, see the "TerminalSetObject.create_terminal"
+    " function.
+    let bufnr = bufnr()
+
+    " The set "key" is stored in a buffer-local variable.
+    let key = getbufvar(bufnr, '_terman_buf')
+
+    " If we can't get the value of this variable, there
+    " is nothing we can do.
+    if !empty(key)
+        call s:terman.get_set(key).close_terminal(bufnr)
+    endif
+endfunction
+
 fu! terman#toggle() " {{{1
     " Public interface to create a new terminal buffer for
     " the current terminal set
@@ -596,6 +637,7 @@ fu! terman#new(vertical) " {{{1
     " Public interface to toggle a terminal set, simple
     " call the Terman object and let it do the work
     let key = s:get_key()
+
     let orientation = a:vertical ? s:VERTICAL : s:HORIZONTAL
     echom "DEBUG terman#new: orientation=" .. orientation
 
