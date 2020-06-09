@@ -89,7 +89,7 @@ const s:HORIZONTAL = ""
             " There is a maximized buffer, so the visibility check
             " should only involve this buffer as it is the only
             " one that _could_ be visible
-            return bufwinid(self.maximized) == -1
+            return empty(win_findbuf(self.maximized))
         endif
 
         " Track whether or not the buffer set is visible in the
@@ -97,18 +97,18 @@ const s:HORIZONTAL = ""
         let visible_in_tab = v:false
 
         if !s:PER_TAB
-            let tab_bufs = []
-
             " NOTE: This will break if the buffer is open
             "       in a context outside of a 'terman-context'
             "       as ":h bufwinid()" will return the _first_
-            "       window that holds the buffer
-            call extend(tab_bufs, map(tabpagebuflist(tabpagenr()), 'bufwinid(v:val)'))
-
+            "       window that holds the buffer.
+            "
+            " ":h bufwinid()" doesn't mention this, but it will
+            " only look in the current tab.
+            "
             " Determine if any of the buffers are visible in the current tab,
             " if one is, assume all are
             for buf_info in self.info
-                if index(tab_bufs, buf_info.bufnr) != -1
+                if bufwinid(buf_info.bufnr) != -1
                     let visible_in_tab = v:true | break
                 endif
             endfor
@@ -118,13 +118,12 @@ const s:HORIZONTAL = ""
         let visible = v:false
 
         " In the other case, if nothing has been maximized we have
-        " to look at each buffer as the user could hide buffers manually,
-        " otherwise something like:
-        "   bufwinid(self.info[0].bufnr) == -1
-        " would work just fine.
+        " to look at each buffer as the user could hide buffers manually.
+        "
+        " If any is visible, assume that they are all visible.
         for buf_info in self.info
-            if bufwinid(buf_info.bufnr) != -1
-                let visible = v:true
+            if !empty(win_findbuf(buf_info.bufnr))
+                let visible = v:true | break
             endif
         endfor
 
@@ -312,7 +311,10 @@ const s:HORIZONTAL = ""
         if a:0
             " Only need to perform this check in the case that we are not
             " starting a completely new terminal set.
-            if empty(getbufvar(bufnr(), '_terman_buf'))
+            "
+            " Avoid using ":h empty()" here because tab ID values start
+            " at 0, and "empty(0)" is true.
+            if getbufvar(bufnr(), '_terman_buf', v:none) is# v:none
                 " It isn't a terman buffer or the root, so we shouldn't
                 " allow a new split to be opened.
                 echoerr "ERROR: Can only open a new terman-terminal buffer from an existing one"
@@ -597,15 +599,22 @@ const s:HORIZONTAL = ""
         else
             let [visible_in_tab, visible] = term_set.is_visible()
 
+            echom 'DEBUG TermanObject.toggle: visible_in_tab=' .. visible_in_tab
+            echom 'DEBUG TermanObject.toggle: visible=' .. visible
+
             if !s:PER_TAB
                 echom 'DEBUG TermanObject.toggle: not per tab'
 
                 if visible_in_tab
                     echom 'DEBUG TermanObject.toggle: visible in tab, hiding'
+                    call term_set.hide()
                 elseif visible && !visible_in_tab
                     echom 'DEBUG TermanObject.toggle: not visible in tab but visible, hiding then showing'
+                    call term_set.hide()
+                    call term_set.show()
                 else
                     echom 'DEBUG TermanObject.toggle: not visible at all, showing'
+                    call term_set.show()
                 endif
             else
                 echom 'DEBUG TermanObject.toggle: not per tab'
@@ -696,15 +705,24 @@ fu! s:terminal_closed_callback(...) " {{{1
     " this is used, meaning not part of the "TerminalSet"
     " object, see the "TerminalSetObject.create_terminal"
     " function.
+    echom 'DEBUG terminal_closed_callback: called'
+
     let bufnr = bufnr()
+    echom 'DEBUG terminal_closed_callback: bufnr=' .. bufnr
 
     " The set "key" is stored in a buffer-local variable.
     let key = getbufvar(bufnr, '_terman_buf')
+    echom 'DEBUG terminal_closed_callback: key=' .. key
+
+    let terminal_set = s:terman.get_set(key)
+    echom 'DEBUG terminal_closed_callback: set'
+    echom terminal_set
 
     " If we can't get the value of this variable, there
     " is nothing we can do.
-    if !empty(key)
-        call s:terman.get_set(key).close_terminal(bufnr)
+    if !terminal_set.is_empty()
+        echom 'DEBUG terminal_closed_callback: calling close_terminal()'
+        call terminal_set.close_terminal(bufnr)
     endif
 endfunction
 
@@ -731,12 +749,15 @@ fu! s:tab_closed(key) " {{{1
         let known_tabs[tabnr] = v:none
     endfor
 
+    echom 'DEBUG tab_closed: terman instance'
+    echom s:terman
+
     " Now loop through all keys that exist for in the script-local
     " "Terman" instance.
     "
     " If key does not exist in the "known_tabs" variable but does
     " exist in the "Terman" set, we know it has been closed.
-    for [tabid, terminal_set] in items(s:terman.get_set(a:key))
+    for [tabid, terminal_set] in items(s:terman.set)
         let tabnr = s:get_tabnr(tabid)
 
         " If this is true, the tab by this number must have been closed.
@@ -796,10 +817,10 @@ augroup END
 
 " TODO {{{1
     " Bugs
-    "   - exit_cb not called when typing out 'exit'
+    "   -
     " Per-tab
-    "    - safe_to_hide: regardless of tab, 'top new' logic still holds
-    "    - get_tabnr?
+    "   - keep focus on the right tab
+    "   - does get_tabnr always work?
     " Maximized
     " Fullscreen
     " Focus tracking

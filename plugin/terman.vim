@@ -8,6 +8,9 @@
 
 " Options {{{1
 
+    " TODO: Remove
+    let g:terman_per_tab = 0
+
     " The border for the popup terminal window
     hi default link Ignore TermanBorder
 
