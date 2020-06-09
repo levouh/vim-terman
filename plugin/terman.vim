@@ -8,10 +8,6 @@
 
 " Options {{{1
 
-    " Each tab can have it's own terminal set, or there can be
-    " a single global terminal set used for all tabs
-    let g:terman_per_tab = get(g:, 'terman_per_tab', 1)
-
     " The border for the popup terminal window
     hi default link Ignore TermanBorder
 
@@ -29,11 +25,6 @@
     " A sequence that is incremented each time a new tab is created, so
     " that each tab has a unique identifier.
     let g:_terman_tab_id = 0
-
-    " The generic key to be used if not using "g:terman_per_tab",
-    " this way the only key in the above dictionary will be this one
-    " and a single terminal set is always used
-    let g:_terman_key = 'base'
 
     " A list of terminal buffer entries managed by terman,
     " optionally split by tab.

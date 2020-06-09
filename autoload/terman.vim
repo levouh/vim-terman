@@ -1,8 +1,27 @@
 " Variables {{{1
 
+" This doesn't allow the user to change the setting once
+" they've already started using it. This will prevent
+" some bugs that could occur in different places.
+"
+" This setting determines whether or not a "TerminalSet"
+" is local to a tab, or global.
+const s:PER_TAB = get(g:, 'terman_per_tab', v:false)
+
+" When "terman_per_tab" is set, a simple way
+" to facilitate this behavior is to just have
+" the script-local "Terman" instance use a single
+" key instead of having each key be a tab ID.
 const s:KEY = "terman_key"
+
+" The porition used to open the root buffer of the set,
+" which determines the overall positioning.
 const s:ROOT = "bot"
+
+" Vertically split a buffer.
 const s:VERTICAL = "vert"
+
+" Horizontally split a buffer, used for consistency.
 const s:HORIZONTAL = ""
 
 " TerminalSet {{{1
@@ -24,7 +43,7 @@ const s:HORIZONTAL = ""
         " tab or multiple.
         "
         " Because we are keying into a dictionary, in the case that the
-        " "g:terman_per_tab" setting is off, the key returned will always
+        " "terman_per_tab" setting is off, the key returned will always
         " be the static "s:KEY".
         let new.key = a:key
 
@@ -32,7 +51,7 @@ const s:HORIZONTAL = ""
     endfu
 
     fu! s:TerminalSetObject.get_tabnr() " {{{2
-        if get(g:, 'terman_per_tab', 1)
+        if s:PER_TAB
             " In the case that this option is set, the value of "self.key"
             " will be a terman-defined tab 'ID', so we need to get the
             " Vim-defined tab number from it
@@ -73,6 +92,31 @@ const s:HORIZONTAL = ""
             return bufwinid(self.maximized) == -1
         endif
 
+        " Track whether or not the buffer set is visible in the
+        " current tab
+        let visible_in_tab = v:false
+
+        if !s:PER_TAB
+            let tab_bufs = []
+
+            " NOTE: This will break if the buffer is open
+            "       in a context outside of a 'terman-context'
+            "       as ":h bufwinid()" will return the _first_
+            "       window that holds the buffer
+            call extend(tab_bufs, map(tabpagebuflist(tabpagenr()), 'bufwinid(v:val)'))
+
+            " Determine if any of the buffers are visible in the current tab,
+            " if one is, assume all are
+            for buf_info in self.info
+                if index(tab_bufs, buf_info.bufnr) != -1
+                    let visible_in_tab = v:true | break
+                endif
+            endfor
+        endif
+
+        " Whether or not the set is visible at all
+        let visible = v:false
+
         " In the other case, if nothing has been maximized we have
         " to look at each buffer as the user could hide buffers manually,
         " otherwise something like:
@@ -80,11 +124,11 @@ const s:HORIZONTAL = ""
         " would work just fine.
         for buf_info in self.info
             if bufwinid(buf_info.bufnr) != -1
-                return v:true
+                let visible = v:true
             endif
         endfor
 
-        return v:false
+        return [visible_in_tab, visible]
     endfu
 
     fu! s:TerminalSetObject.is_maximized() " {{{2
@@ -104,6 +148,13 @@ const s:HORIZONTAL = ""
         " A local alias.
         let bufnr = a:bufnr
 
+        " TODO: Remove
+        echom 'DEBUG TermanObject.close_terminal: info_dict'
+        echom self.info_dict
+
+        echom 'DEBUG TermanObject.close_terminal: info'
+        echom self.info
+
         " Get the information about the buffer being closed
         if !has_key(self.info_dict, bufnr)
             " The buffer isn't tracked but somehow this callback was
@@ -115,12 +166,33 @@ const s:HORIZONTAL = ""
         "
         " NOTE: This is a dictionary.
         let deleting = self.info_dict[bufnr]
+        let root = self.info[0]
+
+        echom 'DEBUG TermanObject.close_terminal: removing buffer=' .. deleting.bufnr
+        echom 'DEBUG TermanObject.close_terminal: root=' .. root.bufnr
 
         " The last child will replace the buffer being deleted, so get the
         " last child entry if it exists, else assign it "v:none".
         "
-        " NOTE: This is a dictionary.
-        let last_child = len(deleting.children) ? deleting.children[-1] : v:none
+        " NOTE: This is a dictionary, or "v:none".
+        let last_child = v:none
+
+        " Alternative methods to looping through all children still
+        " require some form of finding indexes, etc. so this approach
+        " is not that bad in comparison.
+        for buf_info in self.info
+            "  ┌ a child of the buffer being deleted
+            "  │
+            "  ├───────────────────────────────┐
+            if buf_info.parent == deleting.bufnr
+                let last_child = buf_info
+            endif
+        endfor
+
+        " TODO: Remove
+        if last_child isnot# v:none
+            echom 'DEBUG TermanObject.close_terminal: last_child bufnr=' .. last_child.bufnr
+        endif
 
         " When a buffer is to be deleted from the list, all buffers
         " who have this buffer as a parent will need to have their
@@ -159,61 +231,67 @@ const s:HORIZONTAL = ""
                 if buf_info.bufnr == last_child.bufnr
                     " Inherit the parent of the buffer being deleted, as this
                     " buffer is effectively replacing it
-                    let self.info_dict[last_child.bufnr].parent = deleting.parent
+                    let last_child.parent = deleting.parent
+
+                    echom 'DEBUG TermanObject.close_terminal: last_child parent=' .. last_child.parent .. ', bufnr=' .. last_child.bufnr
 
                     let replacement_idx = idx
                 elseif buf_info.parent == deleting.bufnr
                     " Update any buffer that had a parent of the buffer being deleted
                     " to now have a parent of the buffer replacing it
                     let buf_info.parent = last_child.bufnr
+
+                    echom 'DEBUG TermanObject.close_terminal: other parent=' .. buf_info.parent .. ', bufnr=' .. buf_info.bufnr
                 endif
             endif
 
             let idx += 1
         endfor
 
-        " TODO: Are all of these done?
-        "   - Looping over "deleting.children" does not provide
-        "     an easy way to determine the index of the entry that
-        "     is being deleted.
-        "   - Grab the 'last child' by looking at the length of
-        "     "deleting.children", otherwise set it to "v:none".
-        "   - Loop over "self.info" instead, and look for the number
-        "     of the buffer being deleted.
-        return
+        echom 'DEBUG TermanObject.close_terminal: deleting_idx=' .. deleting_idx
+        echom 'DEBUG TermanObject.close_terminal: replacement_idx=' .. replacement_idx
 
-        "  ┌ This case is important beceause we could be deleting a buffer
-        "  │ that has no children, so there is nothing to update
-        "  │
-        "  ├───────────────────────────────────────────────────────────┐
-        if replacement_bufnr isnot# v:none && bufexists(replacement_bufnr)
-            if replacement_bufnr == root.bufnr
-                " This is the new root buffer, as the root is being replaced
-                let self.info_dict[replacement_bufnr].orientation = s:ROOT
+        " If there is not last child, there is nothing being replaced so things
+        " don't need to be inherited.
+        if last_child isnot# v:none
+            echom 'DEBUG TermanObject.close_terminal: last_child no v:none'
+
+            if deleting.bufnr == root.bufnr
+                " The root buffer is being replaced, so inherit the root
+                " orientation
+                let last_child.orientation = s:ROOT
             else
-                " Otherwise inherit the orientation from the buffer being
-                " deleted
-                let self.info_dict[replacement_bufnr].orientation = deleting.orientation
+                " Otherwise inherit the orientation from the buffer that
+                " is being removed
+                let last_child.orientation = deleting.orientation
             endif
 
-            " Replace the buffer being deleted with the one replacing it
-            "
-            "                                      ┌ key into dictionary
-            "                                      │
-            let self.info[deleting_idx] = self.info_dict[replacement_bufnr]
-            "         │
-            "         └ index into a list
+            echom 'DEBUG TermanObject.close_terminal: last_child orientation=' .. last_child.orientation
 
-            " Remove from the dictionary as well
-            unlet self.info_dict[deleting.bufnr]
+            " At this point the indexes won't be messed up, so just
+            " do the replacement right away
+            let self.info[deleting_idx] = last_child
 
-            " At this point, the replacement has already been moved to where
-            " the deleted buffer was, so there are two copies of it in the list.
-            "
-            " The one that should be deleted is the 'older' one at the replacement
-            " index
-            unlet self.info[replacement_idx]
+            " Now swap the two indexes so that the right entry is deleted
+            let deleting_idx = replacement_idx
         endif
+
+        echom 'DEBUG TermanObject.close_terminal: deleting_idx=' .. deleting_idx
+        echom 'DEBUG TermanObject.close_terminal: deleting_buf_nr=' .. deleting.bufnr
+
+        " Remove entries
+        "
+        " Note at this point that these indexes might have changed based on
+        " whether or not there is a replacement happening, or just a straight
+        " delete
+        unlet self.info_dict[deleting.bufnr]
+        unlet self.info[deleting_idx]
+
+        echom 'DEBUG TermanObject.close_terminal: info_dict'
+        echom self.info_dict
+
+        echom 'DEBUG TermanObject.close_terminal: info'
+        echom self.info
 
         " TODO: Need a timer here maybe to remove this "TerminalSetObject"?
     endfu
@@ -307,16 +385,7 @@ const s:HORIZONTAL = ""
             \ bufnr: a:bufnr,
             \ parent: a:parent,
             \ orientation: a:orientation,
-            \ children: []
         \ }
-
-        if a:parent isnot# v:none
-            " Keep track of the parent/child relationship in the parent as well.
-            "
-            " This is important information to track for when buffers are being
-            " deleted via the callback setup in the call to ":h term_start()"
-            call self.add_child(a:parent, a:bufnr)
-        endif
 
         " Store it in a list for easy iteration, this also helps when
         " recreating the order in which the terminal set was opened
@@ -336,16 +405,6 @@ const s:HORIZONTAL = ""
         echom self.info
     endfu
 
-    fu! s:TerminalSetObject.add_child(parent, child) " {{{2
-        " Track the child of a buffer.
-        "
-        " Children are tracked in order, and each buffer will
-        " use this information to keep track of its own children.
-        call add(self.info_dict[a:parent].children, a:child)
-
-        echom 'DEBUG TermanObject.add_child: added child, parent=' .. a:parent .. ', child=' .. a:child
-    endfu
-
     fu! s:TerminalSetObject.safe_to_hide() " {{{2
         " Determine whether or not it is safe to hide all
         " the buffers in the set.
@@ -353,20 +412,26 @@ const s:HORIZONTAL = ""
         " This function is necessary due to the fact that Vim
         " won't allow the last buffer in a tab to be hidden.
 
-        " Count how many of the buffers are terman buffers
-        let terman_count = 0
+        " Count how many of the buffers in the given tab
+        " are _not_ terman buffers
+        let other_count = 0
+
+        echom 'DEBUG TermanObject.safe_to_hide: tabnr=' .. self.get_tabnr()
 
         "                               ┌ this is a Vim-defined tab number
         "                               │
         for buf in tabpagebuflist(self.get_tabnr())
-            if !empty(getbufvar(buf, '_terman_buf'))
-                let terman_count += 1
+            " Avoid using ":h empty()" here because tab ID values start
+            " at 0, and "empty(0)" is true.
+            if getbufvar(buf, '_terman_buf', v:none) is# v:none
+                let other_count += 1
             endif
         endfor
 
-        echom 'DEBUG TermanObject.safe_to_hide: count=' .. terman_count
+        echom 'DEBUG TermanObject.safe_to_hide: count=' .. other_count
 
-        return terman_count != 0
+        " If there are any buffers that are _not_ terman buffers, it is safe to hide
+        return other_count != 0
     endfu
 
     fu! s:TerminalSetObject.hide(...) " {{{2
@@ -522,17 +587,36 @@ const s:HORIZONTAL = ""
         " based on settings), or show it by the same metric.
         let term_set = self.get_set(a:key)
 
+        echom 'DEBUG TermanObject.toggle: term_set'
+        echom term_set
+
         if term_set.is_empty()
             " Passing no arguments will result in the "terminal"
             " buffer to be created at the bottom of the screen
             call term_set.create_terminal()
         else
-            if term_set.is_visible()
-                echom 'DEBUG TermanObject.toggle: visible, hiding'
-                call term_set.hide()
+            let [visible_in_tab, visible] = term_set.is_visible()
+
+            if !s:PER_TAB
+                echom 'DEBUG TermanObject.toggle: not per tab'
+
+                if visible_in_tab
+                    echom 'DEBUG TermanObject.toggle: visible in tab, hiding'
+                elseif visible && !visible_in_tab
+                    echom 'DEBUG TermanObject.toggle: not visible in tab but visible, hiding then showing'
+                else
+                    echom 'DEBUG TermanObject.toggle: not visible at all, showing'
+                endif
             else
-                echom 'DEBUG TermanObject.toggle: not visible, showing'
-                call term_set.show()
+                echom 'DEBUG TermanObject.toggle: not per tab'
+
+                if visible
+                    echom 'DEBUG TermanObject.toggle: visible, hiding'
+                    call term_set.hide()
+                else
+                    echom 'DEBUG TermanObject.toggle: not visible, showing'
+                    call term_set.show()
+                endif
             endif
         endif
     endfu
@@ -561,7 +645,6 @@ const s:HORIZONTAL = ""
     " Instance {{{2
     let s:terman = s:TermanObject.new()
 
-
 fu! s:get_key() " {{{1
     " Get the accessor key to use based on global settings
     "
@@ -570,7 +653,7 @@ fu! s:get_key() " {{{1
     " that are being dealt with. This changes based on the
     " current tab, and if terminal buffer sets are distinct
     " between tabs or not, etc.
-    if get(g:, 'terman_per_tab', 1)
+    if !s:PER_TAB
         return s:KEY
     else
         if !exists('t:_terman_tab_id')
@@ -625,6 +708,57 @@ fu! s:terminal_closed_callback(...) " {{{1
     endif
 endfunction
 
+fu! s:tab_closed(key) " {{{1
+    " Triggered by the autocommand "TabClosed", which will happen
+    " _after_ the tab has been closed, so something like "tabpagenr()"
+    " will not return the correct value.
+    "
+    " Keep in mind that if "terman_per_tab" is set, there will
+    " only ever be a single key and it does not 'belong' to any
+    " given tab.
+    if !s:PER_TAB
+        return
+    endif
+
+    " From this, we have to go through and determine all of the tabs
+    " that exist.
+    let known_tabs = {}
+
+    for tabnr in range(1, tabpagenr('$'))
+        " The value here doesn't matter, but use a dictionary
+        " as it will be faster than a list to check if items
+        " exist
+        let known_tabs[tabnr] = v:none
+    endfor
+
+    " Now loop through all keys that exist for in the script-local
+    " "Terman" instance.
+    "
+    " If key does not exist in the "known_tabs" variable but does
+    " exist in the "Terman" set, we know it has been closed.
+    for [tabid, terminal_set] in items(s:terman.get_set(a:key))
+        let tabnr = s:get_tabnr(tabid)
+
+        " If this is true, the tab by this number must have been closed.
+        if !has_key(known_tabs, tabnr)
+            " Wipeout the terman buffers as they are attached to the closed tab.
+            " This will trigger the callback, and so each buffer will be cleaned
+            " up as well.
+            "
+            " Get all values from the "TerminalSet" instance.
+            for buf_info in terminal_set.info
+                let bufnr = buf_info.bufnr
+
+                try
+                    exe 'bwipeout' .. bufnr(bufnr)
+                catch | | endtry
+            endfor
+
+            unlet s:terman.set[tabid]
+        endif
+    endfor
+endfu
+
 fu! terman#toggle() " {{{1
     " Public interface to create a new terminal buffer for
     " the current terminal set
@@ -644,6 +778,28 @@ fu! terman#new(vertical) " {{{1
     call s:terman.create_terminal_in_set(key, orientation)
 endfu
 
-" Test {{{1
-    " 1. Test closing the root buffer
-    " 2. Open and close a bunch of stuff
+augroup terman " {{{1
+    au!
+
+    " Track which buffer is focused for a more natural experience when
+    " toggling.
+    " TODO
+    " au BufEnter * call terman#focused(bufnr('%'))
+
+    " This is to prevent ":h E947" as it can be quite annoying.
+    au ExitPre * for bufnr in term_list() | exe ':bd! ' . bufnr | endfor
+
+    " When this autocommand triggers, the tab will have already been closed
+    " so it is necessary to check which tab has been closed
+    au TabClosed * call <SID>tab_closed(s:get_key())
+augroup END
+
+" TODO {{{1
+    " Bugs
+    "   - exit_cb not called when typing out 'exit'
+    " Per-tab
+    "    - safe_to_hide: regardless of tab, 'top new' logic still holds
+    "    - get_tabnr?
+    " Maximized
+    " Fullscreen
+    " Focus tracking
