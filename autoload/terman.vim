@@ -134,8 +134,39 @@ const s:HORIZONTAL = ""
         " Determine whether or not this terminal set has a buffer that
         " has been explicitly maximized by the user.
         if self.is_empty()
+            call s:debug('TerminalSetObject.is_maximized', {
+                    \ 'message': 'Set was empty, not maximized',
+            \ })
+
             return v:false
         endif
+
+        call s:debug('TerminalSetObject.is_maximized', {
+                \ 'message': 'Returning check',
+                \ 'maximized': self.maximized isnot# v:none
+        \ })
+
+        return self.maximized isnot# v:none
+    endfu
+
+    fu! s:TerminalSetObject.maximize() " {{{2
+        " This is the buffer that is being maximized, but only allow
+        " this operation to be performed on terman buffers.
+        let bufnr = bufnr()
+
+        if getbufvar(bufnr, '_terman_buf', v:none) is# v:none
+            return
+        endif
+
+        " Track which buffer is maximized
+        let self.maximized = bufnr
+
+        " Hide every buffer except the one that should be maximized
+        "
+        " NOTE: At this point we do not have to check if the terminal
+        "       set is visible, because the ":h getbufvar" call above
+        "       means that is clearly is visible
+        call self.hide_helper(win_findbuf(bufnr))
     endfu
 
     fu! s:TerminalSetObject.close_terminal(bufnr)dict " {{{2
@@ -147,12 +178,11 @@ const s:HORIZONTAL = ""
         " A local alias.
         let bufnr = a:bufnr
 
-        " TODO: Remove
-        echom 'DEBUG TermanObject.close_terminal: info_dict'
-        echom self.info_dict
-
-        echom 'DEBUG TermanObject.close_terminal: info'
-        echom self.info
+        call s:debug('TerminalSetObject.close_terminal', {
+                \ 'message': 'Info before closing',
+                \ 'info_dict': self.info_dict,
+                \ 'info': self.info,
+        \ })
 
         " Get the information about the buffer being closed
         if !has_key(self.info_dict, bufnr)
@@ -167,8 +197,11 @@ const s:HORIZONTAL = ""
         let deleting = self.info_dict[bufnr]
         let root = self.info[0]
 
-        echom 'DEBUG TermanObject.close_terminal: removing buffer=' .. deleting.bufnr
-        echom 'DEBUG TermanObject.close_terminal: root=' .. root.bufnr
+        call s:debug('TerminalSetObject.close_terminal', {
+                \ 'message': 'Root and buffer being deleted',
+                \ 'deleting': deleting.bufnr,
+                \ 'root': root.bufnr,
+        \ })
 
         " The last child will replace the buffer being deleted, so get the
         " last child entry if it exists, else assign it "v:none".
@@ -190,7 +223,10 @@ const s:HORIZONTAL = ""
 
         " TODO: Remove
         if last_child isnot# v:none
-            echom 'DEBUG TermanObject.close_terminal: last_child bufnr=' .. last_child.bufnr
+            call s:debug('TerminalSetObject.close_terminal', {
+                    \ 'message': 'Last child was not none',
+                    \ 'bufnr': last_child.bufnr,
+            \ })
         endif
 
         " When a buffer is to be deleted from the list, all buffers
@@ -232,7 +268,11 @@ const s:HORIZONTAL = ""
                     " buffer is effectively replacing it
                     let last_child.parent = deleting.parent
 
-                    echom 'DEBUG TermanObject.close_terminal: last_child parent=' .. last_child.parent .. ', bufnr=' .. last_child.bufnr
+                    call s:debug('TerminalSetObject.close_terminal', {
+                            \ 'message': 'Found last child',
+                            \ 'parent': last_child.parent,
+                            \ 'bufnr': last_child.bufnr,
+                    \ })
 
                     let replacement_idx = idx
                 elseif buf_info.parent == deleting.bufnr
@@ -240,20 +280,30 @@ const s:HORIZONTAL = ""
                     " to now have a parent of the buffer replacing it
                     let buf_info.parent = last_child.bufnr
 
-                    echom 'DEBUG TermanObject.close_terminal: other parent=' .. buf_info.parent .. ', bufnr=' .. buf_info.bufnr
+                    call s:debug('TerminalSetObject.close_terminal', {
+                            \ 'message': 'Found buffer with parent of deleting buffer',
+                            \ 'parent': buf_info.parent,
+                            \ 'bufnr': buf_info.bufnr,
+                    \ })
                 endif
             endif
 
             let idx += 1
         endfor
 
-        echom 'DEBUG TermanObject.close_terminal: deleting_idx=' .. deleting_idx
-        echom 'DEBUG TermanObject.close_terminal: replacement_idx=' .. replacement_idx
+        call s:debug('TerminalSetObject.close_terminal', {
+                \ 'message': 'Finished looping',
+                \ 'deleting_idx': deleting_idx,
+                \ 'replacement_idx': replacement_idx,
+        \ })
 
         " If there is not last child, there is nothing being replaced so things
         " don't need to be inherited.
         if last_child isnot# v:none
-            echom 'DEBUG TermanObject.close_terminal: last_child no v:none'
+            call s:debug('TerminalSetObject.close_terminal', {
+                    \ 'message': 'Last child is not none',
+                    \ 'bufnr': last_child.bufnr,
+            \ })
 
             if deleting.bufnr == root.bufnr
                 " The root buffer is being replaced, so inherit the root
@@ -265,7 +315,11 @@ const s:HORIZONTAL = ""
                 let last_child.orientation = deleting.orientation
             endif
 
-            echom 'DEBUG TermanObject.close_terminal: last_child orientation=' .. last_child.orientation
+            call s:debug('TerminalSetObject.close_terminal', {
+                    \ 'message': 'Set last child orientation',
+                    \ 'bufnr': last_child.bufnr,
+                    \ 'orientation': last_child.orientation,
+            \ })
 
             " At this point the indexes won't be messed up, so just
             " do the replacement right away
@@ -275,8 +329,11 @@ const s:HORIZONTAL = ""
             let deleting_idx = replacement_idx
         endif
 
-        echom 'DEBUG TermanObject.close_terminal: deleting_idx=' .. deleting_idx
-        echom 'DEBUG TermanObject.close_terminal: deleting_buf_nr=' .. deleting.bufnr
+        call s:debug('TerminalSetObject.close_terminal', {
+                \ 'message': 'Indexes updated',
+                \ 'deleting_idx': deleting_idx,
+                \ 'replacement_idx': replacement_idx,
+        \ })
 
         " Remove entries
         "
@@ -286,13 +343,11 @@ const s:HORIZONTAL = ""
         unlet self.info_dict[deleting.bufnr]
         unlet self.info[deleting_idx]
 
-        echom 'DEBUG TermanObject.close_terminal: info_dict'
-        echom self.info_dict
-
-        echom 'DEBUG TermanObject.close_terminal: info'
-        echom self.info
-
-        " TODO: Need a timer here maybe to remove this "TerminalSetObject"?
+        call s:debug('TerminalSetObject.close_terminal', {
+                \ 'message': 'Finished closing',
+                \ 'info_dict': self.info_dict,
+                \ 'info': self.info,
+        \ })
     endfu
 
     fu! s:TerminalSetObject.create_terminal(...) " {{{2
@@ -328,7 +383,10 @@ const s:HORIZONTAL = ""
             let orientation = a:1
         endif
 
-        echom 'DEBUG TermanObject.create_terminal: orientation=' .. orientation
+        call s:debug('TerminalSetObject.create_terminal', {
+                \ 'message': 'Creating terminal',
+                \ 'orientation': orientation,
+        \ })
 
         " Before we open a new split, we need to know what buffer we are starting
         " from as this denotes the "parent" of the buffer being created
@@ -403,8 +461,10 @@ const s:HORIZONTAL = ""
         " buffers
         let b:_terman_buf = self.key
 
-        echom 'DEBUG TermanObject.add_terminal: added terminal'
-        echom self.info
+        call s:debug('TerminalSetObject.add_terminal', {
+                \ 'message': 'Added terminal',
+                \ 'info': self.info,
+        \ })
     endfu
 
     fu! s:TerminalSetObject.safe_to_hide() " {{{2
@@ -418,7 +478,10 @@ const s:HORIZONTAL = ""
         " are _not_ terman buffers
         let other_count = 0
 
-        echom 'DEBUG TermanObject.safe_to_hide: tabnr=' .. self.get_tabnr()
+        call s:debug('TerminalSetObject.safe_to_hide', {
+                \ 'message': 'Checking safe to hide for tab number',
+                \ 'tabnr': self.get_tabnr(),
+        \ })
 
         "                               ┌ this is a Vim-defined tab number
         "                               │
@@ -430,7 +493,10 @@ const s:HORIZONTAL = ""
             endif
         endfor
 
-        echom 'DEBUG TermanObject.safe_to_hide: count=' .. other_count
+        call s:debug('TerminalSetObject.safe_to_hide', {
+                \ 'message': 'Count of other windows',
+                \ 'count': other_count,
+        \ })
 
         " If there are any buffers that are _not_ terman buffers, it is safe to hide
         return other_count != 0
@@ -446,9 +512,17 @@ const s:HORIZONTAL = ""
         "       been made to it is visible or not.
         let skip = a:0 ? a:1 : []
 
-        echom 'DEBUG TermanObject.hide: called'
+        " Keep track of the window that the operation was started on,
+        " this is important when "terman_per_tab" is not turned on,
+        " as when hiding the focus will change to a different tab.
+        let winid = win_getid()
 
+        " This is where the actual hiding of the buffers happens
         call self.hide_helper(skip)
+
+        " Once all of the windows have been hidden, change focus back
+        " to the window that we started from
+        call win_gotoid(winid)
     endfu
 
     fu! s:TerminalSetObject.hide_helper(winids_to_skip) " {{{2
@@ -457,7 +531,11 @@ const s:HORIZONTAL = ""
         " not be hidden.
         let safe = self.safe_to_hide()
 
-        echom 'DEBUG TermanObject.hide_helper: safe=' .. safe
+        call s:debug('TerminalSetObject.hide_helper', {
+                \ 'message': 'Determined if safe',
+                \ 'safe': safe,
+                \ 'skip': a:winids_to_skip,
+        \ })
 
         " Whether or not the new split was already created to handle
         " errors when trying to hide the last buffer in a tab
@@ -520,10 +598,18 @@ const s:HORIZONTAL = ""
             let root = self.info[0].bufnr
         endif
 
-        echom 'DEBUG TermanObject.show: root=' .. root
+        call s:debug('TerminalSetObject.show', {
+                \ 'message': 'Showing buffer',
+                \ 'root': root,
+        \ })
 
         " Open the root buffer in the configured position
         silent exe s:ROOT .. ' sbuffer ' .. root
+
+        if self.maximized isnot# v:none
+            " Nothing else to do, just open the maximized buffer
+            return
+        endif
 
         " The buffer that has already been opened needs to be skipped,
         " the other option is to use a while loop but then that leaves
@@ -589,8 +675,10 @@ const s:HORIZONTAL = ""
         " based on settings), or show it by the same metric.
         let term_set = self.get_set(a:key)
 
-        echom 'DEBUG TermanObject.toggle: term_set'
-        echom term_set
+        call s:debug('TermanObject.toggle', {
+                \ 'message': 'Got set',
+                \ 'term_set': term_set,
+        \ })
 
         if term_set.is_empty()
             " Passing no arguments will result in the "terminal"
@@ -599,34 +687,56 @@ const s:HORIZONTAL = ""
         else
             let [visible_in_tab, visible] = term_set.is_visible()
 
-            echom 'DEBUG TermanObject.toggle: visible_in_tab=' .. visible_in_tab
-            echom 'DEBUG TermanObject.toggle: visible=' .. visible
+            call s:debug('TermanObject.toggle', {
+                    \ 'message': 'Got visible info',
+                    \ 'visible_in_tab': visible_in_tab,
+                    \ 'visible': visible,
+                    \ 'per_tab': s:PER_TAB,
+            \ })
 
             if !s:PER_TAB
-                echom 'DEBUG TermanObject.toggle: not per tab'
-
                 if visible_in_tab
-                    echom 'DEBUG TermanObject.toggle: visible in tab, hiding'
                     call term_set.hide()
                 elseif visible && !visible_in_tab
-                    echom 'DEBUG TermanObject.toggle: not visible in tab but visible, hiding then showing'
                     call term_set.hide()
                     call term_set.show()
                 else
-                    echom 'DEBUG TermanObject.toggle: not visible at all, showing'
                     call term_set.show()
                 endif
             else
-                echom 'DEBUG TermanObject.toggle: not per tab'
-
                 if visible
-                    echom 'DEBUG TermanObject.toggle: visible, hiding'
                     call term_set.hide()
                 else
-                    echom 'DEBUG TermanObject.toggle: not visible, showing'
                     call term_set.show()
                 endif
             endif
+        endif
+    endfu
+
+    fu! s:TermanObject.maximize(key) " {{{2
+        " Maximize a buffer within the terminal buffer set
+        let term_set = self.get_set(a:key)
+
+        " A buffer is already maximized, so the easiest way
+        " to solve this is to hide the maximized buffer, and
+        " then re-show the whole set.
+        if term_set.is_maximized()
+            call s:debug('TermanObject.maximize', {
+                    \ 'message': 'Maximized already, hiding then showing',
+            \ })
+
+            call term_set.hide()
+            call term_set.show()
+
+            let term_set.maximized = v:none
+        else
+            call s:debug('TermanObject.maximize', {
+                    \ 'message': 'Maximizing',
+            \ })
+
+            " No buffer is already maximized, so maximize
+            " the current one
+            call term_set.maximize()
         endif
     endfu
 
@@ -636,13 +746,19 @@ const s:HORIZONTAL = ""
         let term_set = self.get_set(a:key)
 
         if term_set.is_empty()
-            echom 'DEBUG TermanObject.create_terminal_in_set: empty'
+            call s:debug('TermanObject.create_terminal_in_set', {
+                    \ 'message': 'Creating terminal',
+                    \ 'empty': 'True',
+            \ })
 
             " Nothing exists yet, so call the following function without
             " arguments to ensure that a new buffer is created.
             call term_set.create_terminal()
         else
-            echom 'DEBUG TermanObject.create_terminal_in_set: not empty, orientation=' .. a:orientation
+            call s:debug('TermanObject.create_terminal_in_set', {
+                    \ 'message': 'Creating terminal',
+                    \ 'empty': 'False',
+            \ })
 
             " If we pass arguments, the orientation will be used. At this
             " point we know the terminal set is _not_ empty so it is safe
@@ -705,23 +821,22 @@ fu! s:terminal_closed_callback(...) " {{{1
     " this is used, meaning not part of the "TerminalSet"
     " object, see the "TerminalSetObject.create_terminal"
     " function.
-    echom 'DEBUG terminal_closed_callback: called'
-
     let bufnr = bufnr()
-    echom 'DEBUG terminal_closed_callback: bufnr=' .. bufnr
 
     " The set "key" is stored in a buffer-local variable.
     let key = getbufvar(bufnr, '_terman_buf')
-    echom 'DEBUG terminal_closed_callback: key=' .. key
+
+    call s:debug('TermanObject.terminal_closed_callback', {
+            \ 'message': 'Closing buffer',
+            \ 'bufnr': bufnr,
+            \ 'key': key,
+    \ })
 
     let terminal_set = s:terman.get_set(key)
-    echom 'DEBUG terminal_closed_callback: set'
-    echom terminal_set
 
     " If we can't get the value of this variable, there
     " is nothing we can do.
     if !terminal_set.is_empty()
-        echom 'DEBUG terminal_closed_callback: calling close_terminal()'
         call terminal_set.close_terminal(bufnr)
     endif
 endfunction
@@ -748,9 +863,6 @@ fu! s:tab_closed(key) " {{{1
         " exist
         let known_tabs[tabnr] = v:none
     endfor
-
-    echom 'DEBUG tab_closed: terman instance'
-    echom s:terman
 
     " Now loop through all keys that exist for in the script-local
     " "Terman" instance.
@@ -780,9 +892,24 @@ fu! s:tab_closed(key) " {{{1
     endfor
 endfu
 
+fu! s:debug(method, dict) " {{{1
+    if get(g:, 'terman_debug', 0)
+        return
+    endif
+
+    let msg = ''
+
+    for [key, value] in items(a:dict)
+        let msg .= ' ' .. key .. '=' .. string(value)
+    endfor
+
+    echom 'DEBUG ' .. a:method .. ':' .. msg
+endfu
+
 fu! terman#toggle() " {{{1
     " Public interface to create a new terminal buffer for
-    " the current terminal set
+    " the current terminal set if it does not exist, otherwise
+    " hide it if visible and show it if not.
     let key = s:get_key()
 
     call s:terman.toggle(key)
@@ -794,9 +921,20 @@ fu! terman#new(vertical) " {{{1
     let key = s:get_key()
 
     let orientation = a:vertical ? s:VERTICAL : s:HORIZONTAL
-    echom "DEBUG terman#new: orientation=" .. orientation
+
+    call s:debug('terman.new', {
+            \ 'message': 'Creating new buffer',
+            \ 'orientation': orientation,
+    \ })
 
     call s:terman.create_terminal_in_set(key, orientation)
+endfu
+
+fu! terman#maximize() " {{{1
+    " Maximize a buffer within the terminal set
+    let key = s:get_key()
+
+    call s:terman.maximize(key)
 endfu
 
 augroup terman " {{{1
@@ -816,11 +954,9 @@ augroup terman " {{{1
 augroup END
 
 " TODO {{{1
-    " Bugs
-    "   -
-    " Per-tab
-    "   - keep focus on the right tab
-    "   - does get_tabnr always work?
-    " Maximized
+    " Maximize
     " Fullscreen
     " Focus tracking
+    " hide() doesn't need to take optional arguments?
+    " clean up state when emptied (maximized, fullscreen, etc.)?
+    " Test
