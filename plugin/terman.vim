@@ -81,8 +81,8 @@
     " Maximize a particular terminal buffer within the set
     command TermanMaximize call terman#maximize()
 
-    " " Hide non-terman buffers
-    " command TermanFullscreen call terman#fullscreen()
+    " Hide non-terman buffers
+    command TermanFullscreen call terman#fullscreen()
 
     " " Swap the position of two terminal buffer windows
     " command TermanMark call terman#mark()

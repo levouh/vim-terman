@@ -82,14 +82,7 @@ const s:HORIZONTAL = ""
         " because the user could do something like "wincmd o" on a non-terminal
         " buffer.
         if self.is_empty()
-            return v:false
-        endif
-
-        if self.maximized isnot# v:none
-            " There is a maximized buffer, so the visibility check
-            " should only involve this buffer as it is the only
-            " one that _could_ be visible
-            return empty(win_findbuf(self.maximized))
+            return [v:false, v:false]
         endif
 
         " Track whether or not the buffer set is visible in the
@@ -97,21 +90,47 @@ const s:HORIZONTAL = ""
         let visible_in_tab = v:false
 
         if !s:PER_TAB
-            " NOTE: This will break if the buffer is open
-            "       in a context outside of a 'terman-context'
-            "       as ":h bufwinid()" will return the _first_
-            "       window that holds the buffer.
-            "
-            " ":h bufwinid()" doesn't mention this, but it will
-            " only look in the current tab.
-            "
-            " Determine if any of the buffers are visible in the current tab,
-            " if one is, assume all are
-            for buf_info in self.info
-                if bufwinid(buf_info.bufnr) != -1
-                    let visible_in_tab = v:true | break
-                endif
-            endfor
+            if self.maximized is# v:none
+                " NOTE: This will break if the buffer is open
+                "       in a context outside of a 'terman-context'
+                "       as ":h bufwinid()" will return the _first_
+                "       window that holds the buffer.
+                "
+                " ":h bufwinid()" doesn't mention this, but it will
+                " only look in the current tab.
+                "
+                " In the event that there is no maximized buffer,
+                " we need to check all of them.
+                "
+                " Determine if any of the buffers are visible in the current tab,
+                " if one is, assume all are
+                for buf_info in self.info
+                    if bufwinid(buf_info.bufnr) != -1
+                        let visible_in_tab = v:true | break
+                    endif
+                endfor
+
+                call s:debug('TermanObject.is_visible', {
+                        \ 'message': 'Maximized was none',
+                        \ 'visible_in_tab': visible_in_tab,
+                \ })
+            else
+                " However, if there is a maximized buffer only
+                " that buffer needs to be checked
+                let visible_in_tab = bufwinid(self.maximized) != -1
+
+                call s:debug('TermanObject.is_visible', {
+                        \ 'message': 'Maximized was not none',
+                        \ 'visible_in_tab': visible_in_tab,
+                \ })
+            endif
+        endif
+
+        if self.maximized isnot# v:none
+            " There is a maximized buffer, so the visibility check
+            " should only involve this buffer as it is the only
+            " one that _could_ be visible
+            return [visible_in_tab, !empty(win_findbuf(self.maximized))]
         endif
 
         " Whether or not the set is visible at all
@@ -149,6 +168,28 @@ const s:HORIZONTAL = ""
         return self.maximized isnot# v:none
     endfu
 
+    fu! s:TerminalSetObject.is_fullscreened() " {{{2
+        " Determine whether or not other buffers are visible, or just
+        " terman buffers
+        if self.is_empty()
+            call s:debug('TerminalSetObject.is_fullscreened', {
+                    \ 'message': 'Set was empty, not fullscreened',
+            \ })
+
+            return v:false
+        endif
+
+        " This is not actually checking if things are safe to hide,
+        " but the logic is the same so there's no point in duplicating
+        " it here
+        "
+        " This function will return "v:false" in the case that there
+        " are non-terman buffers visible, and "v:true" in the case that
+        " there _are_ terman buffers visible. From this, the definition
+        " of fullscreen is the opposite.
+        return !self.safe_to_hide()
+    endfu
+
     fu! s:TerminalSetObject.maximize() " {{{2
         " This is the buffer that is being maximized, but only allow
         " this operation to be performed on terman buffers.
@@ -167,6 +208,23 @@ const s:HORIZONTAL = ""
         "       set is visible, because the ":h getbufvar" call above
         "       means that is clearly is visible
         call self.hide_helper(win_findbuf(bufnr))
+    endfu
+
+    fu! s:TerminalSetObject.fullscreen() " {{{2
+        " Fullscreen the terminal set by hiding all non-terman
+        " buffers
+        "
+        "                               ┌ this is a Vim-defined tab number
+        "                               │
+        for buf in tabpagebuflist(self.get_tabnr())
+            " Avoid using ":h empty()" here because tab ID values start
+            " at 0, and "empty(0)" is true.
+            if getbufvar(buf, '_terman_buf', v:none) is# v:none
+                " Go to the window containing the buffer
+                exe bufwinnr(buf) .. "wincmd w"
+                hide
+            endif
+        endfor
     endfu
 
     fu! s:TerminalSetObject.close_terminal(bufnr)dict " {{{2
@@ -348,6 +406,12 @@ const s:HORIZONTAL = ""
                 \ 'info_dict': self.info_dict,
                 \ 'info': self.info,
         \ })
+
+        " In the case that a buffer is maximized, we need to clear the
+        " fact that it is tracked
+        if self.maximized isnot# v:none && bufnr == self.maximized
+            let self.maximized = v:none
+        endif
     endfu
 
     fu! s:TerminalSetObject.create_terminal(...) " {{{2
@@ -721,14 +785,31 @@ const s:HORIZONTAL = ""
         " to solve this is to hide the maximized buffer, and
         " then re-show the whole set.
         if term_set.is_maximized()
+            " Due to how the below works, when fullscreening the state might
+            " change. In this case the set is visible, so determine if it
+            " is already fullscreened before hiding it for use later.
+            let is_fullscreened = term_set.is_fullscreened()
+
             call s:debug('TermanObject.maximize', {
                     \ 'message': 'Maximized already, hiding then showing',
+                    \ 'is_fullscreened': is_fullscreened,
             \ })
 
+            " Hide all the buffers first, this should only hide the maximized
+            " buffer
             call term_set.hide()
+
+            " Before things are showed again, this must be emptied because this
+            " determines what is shown and what is not
+            let term_set.maximized = v:none
+
+            " Due to the above, _all_ of the buffers should now be shown
             call term_set.show()
 
-            let term_set.maximized = v:none
+            " Restore the fullscreen state
+            if is_fullscreened
+                term_set.fullscreen()
+            endif
         else
             call s:debug('TermanObject.maximize', {
                     \ 'message': 'Maximizing',
@@ -737,6 +818,35 @@ const s:HORIZONTAL = ""
             " No buffer is already maximized, so maximize
             " the current one
             call term_set.maximize()
+        endif
+    endfu
+
+    fu! s:TermanObject.fullscreen(key) " {{{2
+        " Hide all non-terman buffers fullscreen the rest
+        let term_set = self.get_set(a:key)
+
+        " Similar to maximizing, if the set if fullscreened
+        " already, the easiest way to deal with this is to
+        " just hide it, and then show it again which will use
+        " the default layout as if it were toggled.
+        if term_set.is_fullscreened()
+            call s:debug('TermanObject.fullscreen', {
+                    \ 'message': 'Fullscreened already, hiding then showing',
+            \ })
+
+            " Hide all buffers, but because the set is fullscreen this method
+            " will also take care of creating a new empty buffer
+            call term_set.hide()
+
+            " This will open the set as if it had not been fullscreened
+            call term_set.show()
+        else
+            call s:debug('TermanObject.fullscreen', {
+                    \ 'message': 'Fullscreening',
+            \ })
+
+            " Essentially just hide all non-terman buffers
+            call term_set.fullscreen()
         endif
     endfu
 
@@ -937,6 +1047,13 @@ fu! terman#maximize() " {{{1
     call s:terman.maximize(key)
 endfu
 
+fu! terman#fullscreen() " {{{1
+    " Hide all non-terman buffers fullscreen the rest
+    let key = s:get_key()
+
+    call s:terman.fullscreen(key)
+endfu
+
 augroup terman " {{{1
     au!
 
@@ -954,9 +1071,13 @@ augroup terman " {{{1
 augroup END
 
 " TODO {{{1
-    " Maximize
     " Fullscreen
+    "   TermanMaximize not respected when fullscreened
+    "       - the problem is the safe_to_hide() check because
+    "         everything is fullscreened
     " Focus tracking
+    " '_terman_buf' needs to be checked more often
+    " is_empty() needs to be checked more as well
     " hide() doesn't need to take optional arguments?
     " clean up state when emptied (maximized, fullscreen, etc.)?
     " Test
