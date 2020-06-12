@@ -24,6 +24,11 @@ const s:VERTICAL = "vert"
 " Horizontally split a buffer, used for consistency.
 const s:HORIZONTAL = ""
 
+" This variable controls whether or not some of the autocommans
+" are skipped, as they pertain to actions performed by the user
+" and those performed by the plugin
+let s:skip_au = v:false
+
 " TerminalSet {{{1
     " Global {{{2
     "
@@ -36,6 +41,7 @@ const s:HORIZONTAL = ""
         let new = copy(self)
         let new.info = []
         let new.info_dict = {}
+        let new.focused = v:none
         let new.maximized = v:none
 
         " The "key" for any terminal set is the tab that it is associated
@@ -188,6 +194,25 @@ const s:HORIZONTAL = ""
         " there _are_ terman buffers visible. From this, the definition
         " of fullscreen is the opposite.
         return !self.safe_to_hide()
+    endfu
+
+    fu! s:TerminalSetObject.focus() " {{{2
+        " Nothing to do if nothing is focused
+        if self.focused is# v:none
+            return
+        endif
+
+        call s:debug('TerminalSetObject.focus', {
+                \ 'message': 'Focusing specific buffer',
+                \ 'focused': self.focused,
+        \ })
+
+        try
+            " Best effort to maintain focus here, as if it
+            " doesn't happen it isn't the end of the world
+            call win_gotoid(bufwinid(self.focused))
+        catch
+        endtry
     endfu
 
     fu! s:TerminalSetObject.maximize() " {{{2
@@ -693,6 +718,9 @@ const s:HORIZONTAL = ""
             silent exe bufwinnr(buf_info.parent) .. 'wincmd w'
             silent exe buf_info.orientation .. ' sbuffer ' .. buf_info.bufnr
         endfor
+
+        " Restore focus of the buffer previously focused by the user
+        call self.focus()
     endfu
 
 " Terman {{{1
@@ -729,6 +757,31 @@ const s:HORIZONTAL = ""
 
             return self.set[a:key]
         endif
+    endfu
+
+    fu! s:TermanObject.set_focused(bufnr) " {{{2
+        " When operations are being performed by the plugin,
+        " they should set this variable as it will mess with
+        " the buffer that has been focused by the user
+        if s:skip_au is# v:true
+            call s:debug('TermanObject.set_focused', {
+                    \ 'message': 'Not setting focus',
+                    \ 'skip_au': s:skip_au
+            \ })
+
+            return
+        endif
+
+        call s:debug('TermanObject.set_focused', {
+                \ 'message': 'Focusing buffer',
+                \ 'skip_au': s:skip_au,
+                \ 'bufnr': a:bufnr
+        \ })
+
+        " Triggered by an autocommand, track which buffer
+        " out of the set is focused at any given time
+        let term_set = self.get_set(s:get_key())
+        let term_set.focused = a:bufnr
     endfu
 
     fu! s:TermanObject.toggle(key) " {{{2
@@ -781,15 +834,15 @@ const s:HORIZONTAL = ""
         " Maximize a buffer within the terminal buffer set
         let term_set = self.get_set(a:key)
 
+        " Due to how the below works, when fullscreening the state might
+        " change. In this case the set is visible, so determine if it
+        " is already fullscreened before hiding it for use later.
+        let is_fullscreened = term_set.is_fullscreened()
+
         " A buffer is already maximized, so the easiest way
         " to solve this is to hide the maximized buffer, and
         " then re-show the whole set.
         if term_set.is_maximized()
-            " Due to how the below works, when fullscreening the state might
-            " change. In this case the set is visible, so determine if it
-            " is already fullscreened before hiding it for use later.
-            let is_fullscreened = term_set.is_fullscreened()
-
             call s:debug('TermanObject.maximize', {
                     \ 'message': 'Maximized already, hiding then showing',
                     \ 'is_fullscreened': is_fullscreened,
@@ -805,11 +858,6 @@ const s:HORIZONTAL = ""
 
             " Due to the above, _all_ of the buffers should now be shown
             call term_set.show()
-
-            " Restore the fullscreen state
-            if is_fullscreened
-                term_set.fullscreen()
-            endif
         else
             call s:debug('TermanObject.maximize', {
                     \ 'message': 'Maximizing',
@@ -819,11 +867,24 @@ const s:HORIZONTAL = ""
             " the current one
             call term_set.maximize()
         endif
+
+        " Restore the fullscreen state
+        if is_fullscreened
+            call s:debug('TermanObject.maximize', {
+                    \ 'message': 'Fullscreening after un-maximizing'
+            \ })
+
+            call term_set.fullscreen()
+        endif
     endfu
 
     fu! s:TermanObject.fullscreen(key) " {{{2
         " Hide all non-terman buffers fullscreen the rest
         let term_set = self.get_set(a:key)
+
+        call s:debug('TermanObject.fullscreen', {
+                \ 'message': 'Got set from key',
+        \ })
 
         " Similar to maximizing, if the set if fullscreened
         " already, the easiest way to deal with this is to
@@ -837,6 +898,10 @@ const s:HORIZONTAL = ""
             " Hide all buffers, but because the set is fullscreen this method
             " will also take care of creating a new empty buffer
             call term_set.hide()
+
+            call s:debug('TermanObject.fullscreen', {
+                    \ 'message': 'Hidden, now showing',
+            \ })
 
             " This will open the set as if it had not been fullscreened
             call term_set.show()
@@ -911,6 +976,7 @@ fu! s:get_key() " {{{1
     endif
 endfu
 
+
 fu! s:get_tabnr(tabid) " {{{1
     " Get the Vim-defined tab number from a given
     " terman-defined tab 'ID'
@@ -924,6 +990,17 @@ fu! s:get_tabnr(tabid) " {{{1
 
     return v:none
 endfunction
+
+fu! s:set_focused(bufnr) " {{{1
+    " Track the terman buffer that the user has focused
+    " before/after performing different operations
+    if getbufvar(a:bufnr, '_terman_buf', v:none) is# v:none
+        " Don't track focus of non-terman buffers
+        return
+    endif
+
+    call s:terman.set_focused(a:bufnr)
+endfu
 
 fu! s:terminal_closed_callback(...) " {{{1
     " This function is called as a callback whenever
@@ -944,11 +1021,17 @@ fu! s:terminal_closed_callback(...) " {{{1
 
     let terminal_set = s:terman.get_set(key)
 
-    " If we can't get the value of this variable, there
-    " is nothing we can do.
-    if !terminal_set.is_empty()
-        call terminal_set.close_terminal(bufnr)
-    endif
+    try
+        let s:skip_au = v:true
+
+        " If we can't get the value of this variable, there
+        " is nothing we can do.
+        if !terminal_set.is_empty()
+            call terminal_set.close_terminal(bufnr)
+        endif
+    finally
+        let s:skip_au = v:false
+    endtry
 endfunction
 
 fu! s:tab_closed(key) " {{{1
@@ -1022,7 +1105,17 @@ fu! terman#toggle() " {{{1
     " hide it if visible and show it if not.
     let key = s:get_key()
 
-    call s:terman.toggle(key)
+    try
+        let s:skip_au = v:true
+        call s:terman.toggle(key)
+    finally
+        let s:skip_au = v:false
+    endtry
+
+    call s:debug('terman.toggle', {
+            \ 'message': 'After toggling',
+            \ 'skip_au': s:skip_au,
+    \ })
 endfu
 
 fu! terman#new(vertical) " {{{1
@@ -1037,33 +1130,46 @@ fu! terman#new(vertical) " {{{1
             \ 'orientation': orientation,
     \ })
 
-    call s:terman.create_terminal_in_set(key, orientation)
+    try
+        let s:skip_au = v:true
+        call s:terman.create_terminal_in_set(key, orientation)
+    finally
+        let s:skip_au = v:false
+    endtry
 endfu
 
 fu! terman#maximize() " {{{1
     " Maximize a buffer within the terminal set
     let key = s:get_key()
 
-    call s:terman.maximize(key)
+    try
+        let s:skip_au = v:true
+        call s:terman.maximize(key)
+    finally
+        let s:skip_au = v:false
+    endtry
 endfu
 
 fu! terman#fullscreen() " {{{1
     " Hide all non-terman buffers fullscreen the rest
     let key = s:get_key()
 
-    call s:terman.fullscreen(key)
+    try
+        let s:skip_au = v:true
+        call s:terman.fullscreen(key)
+    finally
+        let s:skip_au = v:false
+    endtry
 endfu
 
 augroup terman " {{{1
     au!
 
-    " Track which buffer is focused for a more natural experience when
-    " toggling.
-    " TODO
-    " au BufEnter * call terman#focused(bufnr('%'))
-
     " This is to prevent ":h E947" as it can be quite annoying.
     au ExitPre * for bufnr in term_list() | exe ':bd! ' . bufnr | endfor
+
+    " Track which buffer is focused for a more natural experience when toggling
+    au WinEnter * call <SID>set_focused(bufnr('%'))
 
     " When this autocommand triggers, the tab will have already been closed
     " so it is necessary to check which tab has been closed
@@ -1071,11 +1177,6 @@ augroup terman " {{{1
 augroup END
 
 " TODO {{{1
-    " Fullscreen
-    "   TermanMaximize not respected when fullscreened
-    "       - the problem is the safe_to_hide() check because
-    "         everything is fullscreened
-    " Focus tracking
     " '_terman_buf' needs to be checked more often
     " is_empty() needs to be checked more as well
     " hide() doesn't need to take optional arguments?
