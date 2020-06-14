@@ -28,3 +28,9 @@
 
     " Hide non-terman buffers
     command TermanFullscreen call terman#fullscreen()
+
+    " Mark a buffer to be pasted elsewhere
+    command TermanYank call terman#yank()
+
+    " Paste the marked buffer
+    command TermanPaste call terman#paste()

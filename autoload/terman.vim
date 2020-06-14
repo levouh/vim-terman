@@ -69,6 +69,11 @@ let s:skip_au = v:false
         return tabpagenr()
     endfu
 
+    fu! s:TerminalSetObject.get_entry(bufnr) " {{{2
+        " Get and return a specific entry based on buffer number
+        return self.info_dict[a:bufnr]
+    endfu
+
     fu! s:TerminalSetObject.is_empty() " {{{2
         " Determine if this "TerminalSetObject" object is currently
         " tracking any buffers or not. Will return "v:true"
@@ -220,10 +225,6 @@ let s:skip_au = v:false
         " this operation to be performed on terman buffers.
         let bufnr = bufnr()
 
-        if getbufvar(bufnr, '_terman_buf', v:none) is# v:none
-            return
-        endif
-
         " Track which buffer is maximized
         let self.maximized = bufnr
 
@@ -233,6 +234,20 @@ let s:skip_au = v:false
         "       set is visible, because the ":h getbufvar" call above
         "       means that is clearly is visible
         call self.hide_helper(win_findbuf(bufnr))
+    endfu
+
+    fu! s:TerminalSetObject.refresh() " {{{2
+        " It is a good thing that "self.info" will be updated. However, due
+        " to the buffer numbers being changed, the keys in "self.info_dict" will
+        " now be messed up and need to be fixed as well.
+        "
+        " Perform updates to make sure all the references are correct
+        unlet self.info_dict
+        let self.info_dict = {}
+
+        for buf_info in self.info
+            let self.info_dict[buf_info.bufnr] = buf_info
+        endfor
     endfu
 
     fu! s:TerminalSetObject.fullscreen() " {{{2
@@ -250,6 +265,94 @@ let s:skip_au = v:false
                 hide
             endif
         endfor
+    endfu
+
+    fu! s:TerminalSetObject.swap(yanked, target) " {{{2
+        " Replace a buffer and return the information of the buffer
+        " being replaced
+        "
+        " This function will be called on both involved terminal sets, and can
+        " end up performing too many updates on the second call. When the third
+        " argument is passed as ":h v:false", don't update the replacement
+        " buffer information
+        "
+        " NOTE: This function should only be called with two buffers
+        "       that are in the same terminal set
+        call s:debug('TermanObject.swap', {
+                \ 'message': 'Swapping',
+                \ 'yanked': a:yanked.bufnr,
+                \ 'target': a:target.bufnr
+        \ })
+
+        " Local aliases
+        let yanked = a:yanked
+        let target = a:target
+
+        if target.parent == yanked.bufnr
+            " A buffer is replacing it's child
+            let replacement_parent = yanked.bufnr
+            let replacement_bufnr = target.bufnr
+        else
+            " A child is replacing its parent
+            let replacement_parent = target.bufnr
+            let replacement_bufnr = yanked.bufnr
+        endif
+
+        call s:debug('TermanObject.swap', {
+                \ 'message': 'Calculated replacements',
+                \ 'replacement_parent': replacement_parent,
+                \ 'replacement_bufnr': replacement_bufnr
+        \ })
+
+        for buf_info in self.info
+            if buf_info.parent == replacement_parent
+                let buf_info.parent = replacement_bufnr
+            endif
+        endfor
+
+        " Copy the objects under the reference
+        let yanked_copy = copy(yanked)
+
+        " Terminal information is a reference, so updating the dictionary
+        " is easier than iterating through the list.
+        let self.info_dict[yanked_copy.bufnr].bufnr = target.bufnr
+        let self.info_dict[yanked_copy.bufnr].parent = target.parent
+        let self.info_dict[yanked_copy.bufnr].orientation = target.orientation
+
+        " Now the reverse direction.
+        let self.info_dict[target.bufnr].bufnr = yanked_copy.bufnr
+        let self.info_dict[target.bufnr].parent = yanked_copy.parent
+        let self.info_dict[target.bufnr].orientation = yanked_copy.orientation
+
+        " Because things are references, "self.info" will be updated but
+        " "self.info_dict" will not be. Fix that by refreshing the dictionary.
+        call self.refresh()
+
+        call s:debug('TermanObject.swap', {
+                \ 'message': 'Done swapping',
+                \ 'info': self.info,
+                \ 'info_dict': self.info_dict
+        \ })
+    endfu
+
+    fu! s:TerminalSetObject.replace(yanked_bufnr, target_bufnr) " {{{2
+        " Replace a buffer in this terminal set with a buffer from
+        " another terminal set
+        "
+        " NOTE: This will replace "yanked" with "target"
+        call s:debug('TermanObject.replace', {
+                \ 'message': 'Swapping',
+                \ 'yanked': a:yanked_bufnr,
+                \ 'target': a:target_bufnr
+        \ })
+
+        for buf_info in self.info
+            if buf_info.parent == a:yanked_bufnr
+                let buf_info.parent = a:target_bufnr
+            endif
+        endfor
+
+        let self.info_dict[a:yanked_bufnr].bufnr = a:target_bufnr
     endfu
 
     fu! s:TerminalSetObject.close_terminal(bufnr)dict " {{{2
@@ -453,19 +556,6 @@ let s:skip_au = v:false
         let orientation = s:ROOT
 
         if a:0
-            " Only need to perform this check in the case that we are not
-            " starting a completely new terminal set.
-            "
-            " Avoid using ":h empty()" here because tab ID values start
-            " at 0, and "empty(0)" is true.
-            if getbufvar(bufnr(), '_terman_buf', v:none) is# v:none
-                " It isn't a terman buffer or the root, so we shouldn't
-                " allow a new split to be opened.
-                echoerr "ERROR: Can only open a new terman-terminal buffer from an existing one"
-
-                return
-            endif
-
             " When an argument is passed, this will not create a _new_
             " terminal window, but instead use the argument as the orientation
             " to create a new one.
@@ -591,30 +681,26 @@ let s:skip_au = v:false
         return other_count != 0
     endfu
 
-    fu! s:TerminalSetObject.hide(...) " {{{2
+    fu! s:TerminalSetObject.hide() " {{{2
         " Hide this terminal set.
-        "
-        " If arguments are passed, window IDs in that list
-        " will be skipped.
         "
         " NOTE: This function will assume that checks have already
         "       been made to it is visible or not.
-        let skip = a:0 ? a:1 : []
-
+        "
         " Keep track of the window that the operation was started on,
         " this is important when "terman_per_tab" is not turned on,
         " as when hiding the focus will change to a different tab.
         let winid = win_getid()
 
         " This is where the actual hiding of the buffers happens
-        call self.hide_helper(skip)
+        call self.hide_helper()
 
         " Once all of the windows have been hidden, change focus back
         " to the window that we started from
         call win_gotoid(winid)
     endfu
 
-    fu! s:TerminalSetObject.hide_helper(winids_to_skip) " {{{2
+    fu! s:TerminalSetObject.hide_helper(...) " {{{2
         " Iterate over and hide all buffers within this terminal set,
         " those residing in a window passed in the list argument will
         " not be hidden.
@@ -623,7 +709,6 @@ let s:skip_au = v:false
         call s:debug('TerminalSetObject.hide_helper', {
                 \ 'message': 'Determined if safe',
                 \ 'safe': safe,
-                \ 'skip': a:winids_to_skip,
         \ })
 
         " Whether or not the new split was already created to handle
@@ -639,7 +724,7 @@ let s:skip_au = v:false
 
             for winid in winids
                 " Used when fullscreening a buffer, hide all except the 'fullscreened' one
-                if len(a:winids_to_skip) && index(a:winids_to_skip, l:winid) >= 0
+                if a:0 && index(a:1, l:winid) >= 0
                     continue
                 endif
 
@@ -734,6 +819,10 @@ let s:skip_au = v:false
         " it's instance variables.
         let new = copy(self)
         let new.set = {}
+
+        " Track information for a 'terman' buffer that is yanked
+        " so it can be pasted between terminal sets
+        let new.yanked = v:none
 
         return new
     endfu
@@ -831,6 +920,14 @@ let s:skip_au = v:false
     endfu
 
     fu! s:TermanObject.maximize(key) " {{{2
+        " Avoid using ":h empty()" here because tab ID values start
+        " at 0, and "empty(0)" is true.
+        if getbufvar(bufnr(), '_terman_buf', v:none) is# v:none
+            redraw | echohl WarningMsg | echo "ERROR: Operation can only be performed from 'terman' buffer" | echohl None
+
+            return
+        endif
+
         " Maximize a buffer within the terminal buffer set
         let term_set = self.get_set(a:key)
 
@@ -879,6 +976,14 @@ let s:skip_au = v:false
     endfu
 
     fu! s:TermanObject.fullscreen(key) " {{{2
+        " Avoid using ":h empty()" here because tab ID values start
+        " at 0, and "empty(0)" is true.
+        if getbufvar(bufnr(), '_terman_buf', v:none) is# v:none
+            redraw | echohl WarningMsg | echo "ERROR: Operation can only be performed from 'terman' buffer" | echohl None
+
+            return
+        endif
+
         " Hide all non-terman buffers fullscreen the rest
         let term_set = self.get_set(a:key)
 
@@ -915,6 +1020,100 @@ let s:skip_au = v:false
         endif
     endfu
 
+    fu! s:TermanObject.yank(key) " {{{2
+        " Mark a buffer that can be pasted elsewhere
+        let term_set = self.get_set(a:key)
+
+        " Store in the terminal manager so that buffers
+        " can be yanked between two different terminal
+        " sets
+        let yanked = term_set.get_entry(bufnr())
+
+        " Keep track of the key it is associated with as well
+        let self.yanked = [a:key, yanked]
+
+        redraw | echohl WarningMsg | echo "Yanked buffer " .. yanked.bufnr | echohl None
+    endfu
+
+    fu! s:TermanObject.paste(key) " {{{2
+        " Paste the yanked buffer
+        if self.yanked is# v:none
+            redraw | echohl WarningMsg | echo "No yanked buffer" | echohl None
+            return
+        endif
+
+        " Information for where the buffer is being pasted _to_
+        let target_key = a:key
+        let target_term_set = self.get_set(target_key)
+        let target = target_term_set.get_entry(bufnr())
+
+        if getbufvar(target.bufnr, '_terman_buf', v:none) is# v:none
+            redraw | echohl WarningMsg | echo "Can only paste into a 'terman' buffer" | echohl None
+
+            return
+        endif
+
+        " Information for where the buffer is being yanked _from_
+        let yanked_key = self.yanked[0]
+        let yanked = self.yanked[1]
+        let yanked_term_set = self.get_set(yanked_key)
+
+        call s:debug('TermanObject.paste', {
+                \ 'message': 'Pasting',
+                \ 'yanked_key': yanked_key,
+                \ 'yanked_bufnr': yanked.bufnr,
+                \ 'target_key': target_key,
+                \ 'target_bufnr': target.bufnr
+        \ })
+
+        if target_key == yanked_key
+            " Some additional logic needs to be performed as the two buffers
+            " are a part of the same terminal set
+            "
+            " Doesn't matter which terminal set reference we use here
+            call target_term_set.swap(yanked, target)
+        else
+            let yanked_bufnr = yanked.bufnr
+            let target_bufnr = target.bufnr
+
+            " The two buffers are from different terminal sets
+            call target_term_set.replace(target_bufnr, yanked_bufnr)
+            call yanked_term_set.replace(yanked_bufnr, target_bufnr)
+        endif
+
+        redraw | echohl WarningMsg | echo "Pasting buffer: " .. yanked.bufnr | echohl None
+
+        " Now visually swap the two
+        "
+        " Make sure to do the yanked buffer first so that the window
+        " focus stays the same for the user
+        let yanked_winid = win_findbuf(yanked.bufnr)
+        let target_winid = win_findbuf(target.bufnr)
+
+        " Note that this should come _after_ both window IDs are found
+        " because this next operation will change the result
+        "
+        " It is possible that one or more of the windows are not visible,
+        " but the updates should still be performed. Perform the visual
+        " swap only if the buffers in question are visible.
+        if !empty(target_winid)
+            call win_gotoid(target_winid[0])
+            silent exe 'b ' .. yanked.bufnr
+        endif
+
+        if !empty(yanked_winid)
+            call win_gotoid(yanked_winid[0])
+            silent exe 'b ' .. target.bufnr
+        endif
+
+        " Now update the "info_dict" based on the "info"
+        " of each terminal setdictionaries based on the
+        call yanked_term_set.refresh()
+        call target_term_set.refresh()
+
+        let self.yanked = v:none
+    endfu
+
     fu! s:TermanObject.create_terminal_in_set(key, orientation) " {{{2
         " Direct to the correcet "TerminalSet" and have it create a new
         " "terminal" buffer in the correct orientation
@@ -934,6 +1133,19 @@ let s:skip_au = v:false
                     \ 'message': 'Creating terminal',
                     \ 'empty': 'False',
             \ })
+
+            " Only need to perform this check in the case that we are not
+            " starting a completely new terminal set.
+            "
+            " Avoid using ":h empty()" here because tab ID values start
+            " at 0, and "empty(0)" is true.
+            if getbufvar(bufnr(), '_terman_buf', v:none) is# v:none
+                " It isn't a terman buffer or the root, so we shouldn't
+                " allow a new split to be opened.
+                redraw | echohl WarningMsg | echo "ERROR: Can only open a new terman-terminal buffer from an existing one" | echohl None
+
+                return
+            endif
 
             " If we pass arguments, the orientation will be used. At this
             " point we know the terminal set is _not_ empty so it is safe
@@ -1162,6 +1374,30 @@ fu! terman#fullscreen() " {{{1
     endtry
 endfu
 
+fu! terman#yank() " {{{1
+    " Mark a buffer to be pasted elsewhere
+    let key = s:get_key()
+
+    try
+        let s:skip_au = v:true
+        call s:terman.yank(key)
+    finally
+        let s:skip_au = v:false
+    endtry
+endfu
+
+fu! terman#paste() " {{{1
+    " Paste the yanked buffer
+    let key = s:get_key()
+
+    try
+        let s:skip_au = v:true
+        call s:terman.paste(key)
+    finally
+        let s:skip_au = v:false
+    endtry
+endfu
+
 augroup terman " {{{1
     au!
 
@@ -1177,8 +1413,12 @@ augroup terman " {{{1
 augroup END
 
 " TODO {{{1
-    " '_terman_buf' needs to be checked more often
+    " Fix paste()
+    "   - problem is that if using the same terminal set, say:
+    "       {4, 5}
+    "     the first paste will be performed, and it will look like:
+    "       {5, 5}
+    "     so when the second paste happens, the indexes are wrong
     " is_empty() needs to be checked more as well
-    " hide() doesn't need to take optional arguments?
     " clean up state when emptied (maximized, fullscreen, etc.)?
     " Test
