@@ -377,6 +377,10 @@ let s:skip_au = v:false
             return
         endif
 
+        if bufnr == self.maximized
+            let self.maximized = v:none
+        endif
+
         " It exists, grab the information
         "
         " NOTE: This is a dictionary.
@@ -931,6 +935,11 @@ let s:skip_au = v:false
         " Maximize a buffer within the terminal buffer set
         let term_set = self.get_set(a:key)
 
+        if term_set.is_empty()
+            " Nothing to do
+            return
+        endif
+
         " Due to how the below works, when fullscreening the state might
         " change. In this case the set is visible, so determine if it
         " is already fullscreened before hiding it for use later.
@@ -987,6 +996,11 @@ let s:skip_au = v:false
         " Hide all non-terman buffers fullscreen the rest
         let term_set = self.get_set(a:key)
 
+        if term_set.is_empty()
+            " Nothing to do
+            return
+        endif
+
         call s:debug('TermanObject.fullscreen', {
                 \ 'message': 'Got set from key',
         \ })
@@ -1024,6 +1038,11 @@ let s:skip_au = v:false
         " Mark a buffer that can be pasted elsewhere
         let term_set = self.get_set(a:key)
 
+        if term_set.is_empty()
+            " Nothing to do
+            return
+        endif
+
         " Store in the terminal manager so that buffers
         " can be yanked between two different terminal
         " sets
@@ -1057,6 +1076,11 @@ let s:skip_au = v:false
         let yanked_key = self.yanked[0]
         let yanked = self.yanked[1]
         let yanked_term_set = self.get_set(yanked_key)
+
+        if target_term_set.is_empty() || yanked_term_set.is_empty()
+            " Nothing to do
+            return
+        endif
 
         call s:debug('TermanObject.paste', {
                 \ 'message': 'Pasting',
@@ -1133,6 +1157,16 @@ let s:skip_au = v:false
                     \ 'message': 'Creating terminal',
                     \ 'empty': 'False',
             \ })
+
+            " Weird things can happen if creating a new split when the
+            " terminal set is maximized, so take care of that here
+            if term_set.is_maximized()
+                call s:debug('TermanObject.create_terminal_in_set', {
+                        \ 'message': 'Toggling maximize',
+                \ })
+
+                call self.maximize(a:key)
+            endif
 
             " Only need to perform this check in the case that we are not
             " starting a completely new terminal set.
@@ -1298,7 +1332,7 @@ fu! s:tab_closed(key) " {{{1
 endfu
 
 fu! s:debug(method, dict) " {{{1
-    if get(g:, 'terman_debug', 0)
+    if get(g:, 'terman_debug', 0) is# 0
         return
     endif
 
@@ -1412,13 +1446,3 @@ augroup terman " {{{1
     au TabClosed * call <SID>tab_closed(s:get_key())
 augroup END
 
-" TODO {{{1
-    " Fix paste()
-    "   - problem is that if using the same terminal set, say:
-    "       {4, 5}
-    "     the first paste will be performed, and it will look like:
-    "       {5, 5}
-    "     so when the second paste happens, the indexes are wrong
-    " is_empty() needs to be checked more as well
-    " clean up state when emptied (maximized, fullscreen, etc.)?
-    " Test
