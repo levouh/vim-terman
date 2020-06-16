@@ -1356,6 +1356,7 @@ fu! terman#toggle() " {{{1
         call s:terman.toggle(key)
     finally
         let s:skip_au = v:false
+        wincmd =
     endtry
 
     call s:debug('terman.toggle', {
@@ -1381,6 +1382,7 @@ fu! terman#new(vertical) " {{{1
         call s:terman.create_terminal_in_set(key, orientation)
     finally
         let s:skip_au = v:false
+        wincmd =
     endtry
 endfu
 
@@ -1393,6 +1395,7 @@ fu! terman#maximize() " {{{1
         call s:terman.maximize(key)
     finally
         let s:skip_au = v:false
+        wincmd =
     endtry
 endfu
 
@@ -1405,6 +1408,7 @@ fu! terman#fullscreen() " {{{1
         call s:terman.fullscreen(key)
     finally
         let s:skip_au = v:false
+        wincmd =
     endtry
 endfu
 
