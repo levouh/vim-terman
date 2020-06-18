@@ -610,6 +610,9 @@ let s:skip_au = v:false
             " 0 will be returned if opening the "terminal" buffer failed,
             " see ":h term_start()" for more informatio.
             call self.add_terminal(bufnr, orientation, parent)
+
+            " Focus changes after creating a new buffer
+            let self.focused = bufnr
         endif
     endfu
 
